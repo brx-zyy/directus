@@ -78,3 +78,11 @@ A regression assertion was added on the audit branch to require a strict greater
 ## Reporting caveats
 
 This report is not yet a fully verified security submission. The source and generated SQL demonstrate the off-by-one condition, but a clean database-backed endpoint reproduction and confirmation of intended `max_uses` semantics are still needed. The mocked unit test is not, by itself, proof of the concurrency impact.
+
+
+## Validation status
+
+- Original implementation: the generated SQL was observed to use `max_uses >= times_used`; the strict-predicate regression assertion fails against it.
+- Fix experiment: branch [`security-audit/share-limit-fix`](https://github.com/brx-zyy/directus/tree/security-audit/share-limit-fix) changes the comparison to strict greater-than.
+- GitHub Actions on the fix branch: share service tests **7/7 passed** and the file/TUS SQLite E2E suite passed.
+- Still outstanding: a database-backed endpoint reproduction on the original implementation, and an atomic conditional increment to address the separate concurrency race.
