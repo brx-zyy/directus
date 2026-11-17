@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { createCollection, createDirectus, createItem, rest, staticToken } from '@directus/sdk';
 import { database } from '@utils/constants.js';
 import { getUID } from '@utils/getUID.js';
 import { sandboxPort } from '@utils/sandbox-port.js';
@@ -7,50 +6,31 @@ import { useSandbox } from '@utils/sandbox.js';
 import { afterAll, expect, test } from 'vitest';
 
 const uid = getUID();
-const collection = `share_limit_${uid}`;
 const directus = await useSandbox(database, {
 	port: sandboxPort(),
 	inspect: false,
 	prefix: `share-limit-${uid}`,
-	env: {
-		DB_FILENAME: `directus_test_${uid}.db`,
-	},
+	env: { DB_FILENAME: `directus_test_${uid}.db` },
 	docker: { suffix: uid },
 	cache: false,
 	knex: true,
 });
 
 const apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
-const api = createDirectus<Record<string, any>>(apiUrl).with(rest()).with(staticToken('admin'));
 
 afterAll(async () => {
 	await directus.stop();
 });
 
 test('a share configured for one use rejects the second authentication', async () => {
-	await api.request(
-		createCollection({
-			collection,
-			fields: [
-				{
-					field: 'id',
-					type: 'uuid',
-					meta: { hidden: true, readonly: true, special: ['uuid'] },
-					schema: { is_primary_key: true },
-				},
-				{ field: 'title', type: 'string' },
-			],
-			schema: {},
-		} as any),
-	);
-
-	const item = await api.request(createItem(collection, { title: 'share limit test' }));
+	const user = await directus.knex!('directus_users').select('id').first();
 	const shareId = randomUUID();
+
 	await directus.knex!('directus_shares').insert({
 		id: shareId,
 		name: 'one-use regression',
-		collection,
-		item: item.id,
+		collection: 'directus_users',
+		item: user.id,
 		max_uses: 1,
 		times_used: 0,
 	});
