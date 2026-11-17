@@ -28,29 +28,17 @@ afterAll(async () => {
 });
 
 test('a share configured for one use rejects the second authentication', async () => {
-	await api.request(
-		createCollection({
-			collection,
-			fields: [
-				{
-					field: 'id',
-					type: 'uuid',
-					meta: { hidden: true, readonly: true, special: ['uuid'] },
-					schema: { is_primary_key: true },
-				},
-				{ field: 'title', type: 'string' },
-			],
-			schema: {},
-		} as any),
-	);
+	const user = await directus.knex!('directus_users').select('id').first();
 
-	const item = await api.request(createItem(collection, { title: 'share limit test' }));
+	// The SQLite sandbox does not seed the system collection metadata rows.
+	await directus.knex!('directus_collections').insert({ collection: 'directus_users' });
+
 	const shareId = randomUUID();
 	await directus.knex!('directus_shares').insert({
 		id: shareId,
 		name: 'one-use regression',
-		collection,
-		item: item.id,
+		collection: 'directus_users',
+		item: user.id,
 		max_uses: 1,
 		times_used: 0,
 	});
