@@ -1,88 +1,70 @@
-# Directus share max-uses enforcement bypass
+# Advisory Details
 
-**Status:** Candidate finding; source-level behavior identified, independent database-backed reproduction still required  
-**Affected component:** Share authentication endpoint `POST /shares/auth`  
-**Source:** `api/src/services/shares.ts`, `SharesService.login()`  
-**Suggested severity:** Low to Medium, pending confirmation of intended semantics and practical impact
+**Title:** Share usage limit may permit one additional authentication
 
-## Summary
+**Summary**
 
-The share login query allows a share to authenticate when its usage counter has already reached its configured maximum. The query currently applies:
+The share-login eligibility query uses `max_uses >= times_used`. When the usage counter is already equal to the configured maximum, the predicate still matches. The UI treats equality as exhausted, so this appears to be an off-by-one enforcement defect.
+
+**Validation status: NOT CONFIRMED end-to-end.** Source inspection identifies the condition, but no database-backed request to `POST /shares/auth` has yet demonstrated that the second login actually receives tokens. The existing passing CI run is for the proposed fix branch and its service-level tests, not a vulnerable endpoint reproduction.
+
+## Details
+
+In `api/src/services/shares.ts`, `SharesService.login()` selects the share using:
 
 ```ts
 subQuery.whereNull('max_uses').orWhere('max_uses', '>=', this.knex.ref('times_used'));
 ```
 
-For a share configured with `max_uses = 1` and `times_used = 1`, the predicate is true. The login proceeds, increments the counter to 2, and issues another access token and refresh token. In general, the predicate permits a login while `times_used === max_uses`, yielding one more successful login than the configured limit.
+For `max_uses = 1` and `times_used = 1`, the equality branch evaluates true. If the row is selected, the method increments the counter and proceeds to generate an access token and refresh token.
 
-## Additional race condition
+The Directus UI independently treats `max_uses - times_used === 0` as exhausted in `app/src/routes/shared/shared.vue` and `app/src/views/private/components/share-item.vue`. This supports the interpretation that the API should reject equality.
 
-The check and increment are separate database operations:
+A separate possible race exists because the service reads the counter and later writes a value calculated from that stale row, with the update filtered only by share ID. Concurrent over-consumption has not been demonstrated and is not claimed as confirmed impact here.
 
-1. Select the share if the usage predicate passes.
-2. Calculate `(record.share_times_used ?? 0) + 1` in application code.
-3. Update the row by share ID without a conditional usage predicate or atomic increment expression.
-4. Issue tokens.
+## Proof of concept
 
-Concurrent requests can therefore read the same counter value and both pass. Both then write the same next counter value and issue sessions. This is a potential lost-update race that may permit more than one extra login under concurrency. Its exact impact depends on database isolation and needs a database-backed concurrency test.
+**Status: reproduction procedure prepared; result not yet verified against a real database-backed endpoint.**
 
-## Reproduction (controlled test instance only)
+Use a disposable Directus test instance only.
 
-1. Create a share for a test item and configure `max_uses = 1`, with no password and valid start/end dates.
-2. Confirm `times_used = 0`.
-3. Send one unauthenticated request:
-
+1. Create a share for a disposable test item with `max_uses = 1`, no password, and valid start/end dates.
+2. Confirm the database row has `times_used = 0`.
+3. Send:
    ```http
    POST /shares/auth
    Content-Type: application/json
 
    {"share":"<TEST_SHARE_UUID>","mode":"json"}
    ```
-
-4. Confirm the response contains `access_token` and `refresh_token`; the share counter becomes 1.
+4. Confirm the first request succeeds and the row becomes `times_used = 1`.
 5. Send the identical request again.
-6. Observe whether the second request also returns tokens even though `times_used` was already 1 before it began.
+6. Record the HTTP status, response body, and database counter.
 
-Expected behavior: request 5 is rejected once the configured maximum has been reached.  
-Current source behavior: the SQL predicate accepts equality (`max_uses >= times_used`), so the second request is eligible and proceeds.
+**Expected secure behavior:** the second request is rejected because the maximum has already been reached.
 
-For a race test, reset the counter to zero and issue multiple requests concurrently against a one-use test share. Record successful responses and the final `times_used` value. Do not run this against a production share.
+**Suspected vulnerable behavior:** the second request is accepted because the SQL condition permits `max_uses === times_used`. This outcome must be observed before submitting this as a confirmed vulnerability.
 
-## Evidence
+## Impact
 
-The application UI independently treats the limit as exhausted when `max_uses - times_used` reaches zero (`app/src/routes/shared/shared.vue` and `app/src/views/private/components/share-item.vue`). This corroborates that equality should be rejected by the authentication endpoint.
+If the endpoint behaves as the query suggests, a share configured for N uses may allow N+1 successful authentications, exceeding the owner's configured access limit. This could extend access to shared content beyond the intended number of uses. Severity depends on how share limits are used operationally.
 
-The relevant source is in `api/src/services/shares.ts`, in `SharesService.login()`:
+## Suggested remediation
 
-- The eligibility query uses `max_uses >= times_used`.
-- The counter update uses a value calculated from the previously selected record.
-- The update is filtered only by share ID.
-- Access and refresh tokens are generated after the update.
+Use a strict less-than condition for eligibility and consume a use atomically, e.g. a conditional update equivalent to:
 
-A regression assertion was added on the audit branch to require a strict greater-than predicate. GitHub Actions failed that assertion and printed the generated SQL containing `("max_uses" is null or "max_uses" >= "times_used")`. A separate fix branch changes the predicate to strict greater-than, and the isolated share-service regression test passes there.
+```sql
+UPDATE directus_shares
+SET times_used = times_used + 1
+WHERE id = ?
+  AND (max_uses IS NULL OR times_used < max_uses)
+```
 
-## Recommended remediation
+Require exactly one affected row before issuing tokens. Add database-backed endpoint and concurrent-request regression tests.
 
-- Reject at equality by using `max_uses > times_used`.
-- Make checking and consuming a use atomic. For example, perform a conditional update equivalent to:
+## Test evidence
 
-  ```sql
-  UPDATE directus_shares
-  SET times_used = times_used + 1
-  WHERE id = ? AND (max_uses IS NULL OR times_used < max_uses)
-  ```
-
-  Then require exactly one affected row before issuing tokens.
-- Add a database-backed integration test for the exact-limit case and a concurrent-login test.
-
-## Reporting caveats
-
-This report is not yet a fully verified security submission. The source and generated SQL demonstrate the off-by-one condition, but a clean database-backed endpoint reproduction and confirmation of intended `max_uses` semantics are still needed. The mocked unit test is not, by itself, proof of the concurrency impact.
-
-
-## Validation status
-
-- Original implementation: the generated SQL was observed to use `max_uses >= times_used`; the strict-predicate regression assertion fails against it.
-- Fix experiment: branch [`security-audit/share-limit-fix`](https://github.com/brx-zyy/directus/tree/security-audit/share-limit-fix) changes the comparison to strict greater-than.
-- GitHub Actions on the fix branch: share service tests **7/7 passed** and the file/TUS SQLite E2E suite passed.
-- Still outstanding: a database-backed endpoint reproduction on the original implementation, and an atomic conditional increment to address the separate concurrency race.
+- The original source contains the `>=` comparison.
+- The proposed fix branch `security-audit/share-limit-fix` changes it to strict greater-than.
+- GitHub Actions run [44078710187](https://github.com/brx-zyy/directus/actions/runs/44078710187) passed the isolated share-service suite (7/7) on the **fix branch**. This validates the proposed regression test/fix, not exploitability on the original endpoint.
+- No successful second-login response from the original implementation has been captured.
