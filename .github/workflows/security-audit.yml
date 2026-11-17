@@ -35,6 +35,10 @@ jobs:
       - name: Run authentication session regression tests
         run: pnpm --filter @directus/api exec vitest run src/services/authentication.test.ts src/services/shares.test.ts src/request/proxy-bypass.test.ts src/services/files.test.ts
 
+      - name: Run isolated share usage limit regression
+        if: always()
+        run: pnpm --filter @directus/api exec vitest run src/services/shares.test.ts
+
       - name: Run file endpoint integration tests
         if: always()
         working-directory: tests/e2e
