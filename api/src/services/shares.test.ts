@@ -1,12 +1,17 @@
 import { InvalidPayloadError } from '@directus/errors';
 import type { Accountability, SchemaOverview } from '@directus/types';
 import knex from 'knex';
+import jwt from 'jsonwebtoken';
 import { createTracker, MockClient } from 'knex-mock-client';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { clearCache as clearPermissionsCache } from '../permissions/cache.js';
 import { validateAccess } from '../permissions/modules/validate-access/validate-access.js';
 import { ItemsService } from './items.js';
 import { SharesService } from './shares.js';
+
+vi.mock('jsonwebtoken', () => ({ default: { sign: vi.fn().mockReturnValue('access-token') } }));
+vi.mock('nanoid', () => ({ nanoid: vi.fn().mockReturnValue('refresh-token') }));
+vi.mock('../utils/get-secret.js', () => ({ getSecret: vi.fn().mockReturnValue('test-secret') }));
 
 vi.mock('@directus/env', async () => {
 	const { mockUseEnv } = await import('../test-utils/env.js');
@@ -36,6 +41,29 @@ describe('SharesService', () => {
 	afterEach(() => {
 		tracker.reset();
 		vi.clearAllMocks();
+	});
+
+	describe('login', () => {
+		test('rejects login when max_uses has already been reached', async () => {
+			tracker.on.select('directus_shares').responseOnce([
+				{
+					share_id: 'share-id',
+					share_start: null,
+					share_end: null,
+					share_times_used: 1,
+					share_max_uses: 1,
+					share_password: null,
+				},
+			]);
+			tracker.on.update('directus_shares').responseOnce([1]);
+			tracker.on.insert('directus_sessions').responseOnce([1]);
+			tracker.on.delete('directus_sessions').responseOnce(1);
+
+			await service.login({ share: 'share-id' });
+
+			const lookup = tracker.history.select.find((query) => query.sql.includes('directus_shares'));
+			expect(lookup?.sql).not.toContain('>=');
+		});
 	});
 
 	describe('updateMany', () => {
