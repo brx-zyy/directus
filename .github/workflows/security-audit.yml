@@ -46,3 +46,5 @@ jobs:
         env:
           LOG_LEVEL: debug
         run: pnpm exec vitest run --project sqlite-sb tests/endpoints/files/files.sb.test.ts --no-file-parallelism
+
+# Re-run the database-backed share max-uses regression after fixture correction.
