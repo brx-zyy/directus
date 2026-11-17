@@ -43,6 +43,11 @@ await expectStatus('Admin login', adminLogin, 200);
 const adminToken = adminLogin.json.data?.access_token;
 if (!adminToken) throw new Error('Admin login did not return data.access_token');
 
+const me = await request('/users/me?fields=id,role', { token: adminToken });
+await expectStatus('Get admin role', me, 200);
+const adminRole = me.json.data?.role;
+if (!adminRole) throw new Error('Could not determine admin role ID');
+
 const collection = 'poc_share_items';
 const createCollection = await request('/collections', {
   method: 'POST',
@@ -70,6 +75,7 @@ const createShare = await request('/shares', {
     name: 'HTTP max_uses security reproduction',
     collection,
     item: itemId,
+    role: adminRole,
     max_uses: 1,
   },
 });
