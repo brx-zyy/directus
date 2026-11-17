@@ -221,11 +221,11 @@ describe('Room.verifyPermissions', () => {
 		] as any);
 		vi.mocked(fetchAllowedFields).mockResolvedValueOnce(['private_field']).mockResolvedValueOnce([]);
 
-		const allowedFields = await verifyPermissions(allowedIpClient, collection, item, 'read', {
+		const allowedFields = await verifyPermissions(allowedIpClient, collection, item, 'update', {
 			knex: getDatabase(),
 			schema: await getSchema(),
 		});
-		const disallowedFields = await verifyPermissions(disallowedIpClient, collection, item, 'read', {
+		const disallowedFields = await verifyPermissions(disallowedIpClient, collection, item, 'update', {
 			knex: getDatabase(),
 			schema: await getSchema(),
 		});
