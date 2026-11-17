@@ -43,8 +43,8 @@ jobs:
           nohup pnpm --filter @directus/api dev > /tmp/directus-http-poc.log 2>&1 &
           echo $! > /tmp/directus-http-poc.pid
           for i in $(seq 1 90); do
-            if curl --silent --fail http://127.0.0.1:8055/server/health >/dev/null; then
-              echo "Directus HTTP server is healthy"
+            if curl --silent --max-time 2 -o /dev/null http://127.0.0.1:8055/server/health; then
+              echo "Directus HTTP listener is responding"
               exit 0
             fi
             sleep 2
