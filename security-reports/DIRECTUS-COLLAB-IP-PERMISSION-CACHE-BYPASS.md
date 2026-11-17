@@ -20,7 +20,7 @@ It does not include the client IP address.
 
 However, permission policy selection is IP-sensitive. `fetchPolicies()` passes `ip` into `_fetchPolicies()`, which filters access rows using `filterPoliciesByIp(accessRows, ip)`. The collaborative permission verifier calls `permissionCache.get()` before fetching policies.
 
-Consequently, two WebSocket connections authenticated as the same user, targeting the same collection/item/action, but originating from different IP addresses can collide in the process-wide permission cache. If an allowed-IP connection populates the cache first, a connection from an IP that should not receive the IP-restricted policy may reuse the cached allowed fields without evaluating its own IP policy set.
+Consequently, two WebSocket connections authenticated as the same user, targeting the same collection/item/action, but originating from different IP addresses can collide in the process-wide permission cache. A key exploitation scenario is a user who has general read access (so both connections can join the room) but has update permission restricted to an allowed IP range. If an allowed-IP connection populates the update-permission cache first, a connection from a disallowed IP may reuse those cached update fields without evaluating its own IP policy set.
 
 ## Attack preconditions
 
@@ -47,10 +47,11 @@ A regression test was added to `api/src/websocket/collab/permissions-cache.test.
 ## Controlled reproduction outline
 
 1. Configure an account with a collaborative-editing permission policy restricted to a specific allowed IP range.
-2. From an allowed IP, authenticate as that account and open a collaborative room for a test item, causing the permission cache to populate.
-3. From a disallowed IP, authenticate as the same account and request access to the same room/item.
-4. Compare behavior with a fresh process/cache and with the allowed-IP request performed first.
-5. Verify whether the disallowed connection reuses the cached allowed fields and can read/edit fields that its IP-restricted policy should deny.
+2. Give the account general read permission for the test item, but grant update permission for a sensitive test field only from the allowed IP range.
+3. From an allowed IP, authenticate as that account, open the collaborative room, and trigger an update-permission check for the test field so the cache is populated.
+4. From a disallowed IP, authenticate as the same account and join the same room. The general read permission should allow the join.
+5. Attempt to update the field whose update policy is restricted to the allowed IP range.
+6. Compare behavior with a fresh process/cache and with the allowed-IP update check performed first.
 
 Use only a test instance and test account. Do not attempt this against a third-party deployment.
 
@@ -60,4 +61,4 @@ Include the normalized client IP (and any other policy-varying accountability di
 
 ## Reporting caveat
 
-The missing IP dimension and the cache lookup order are confirmed by source inspection. The impact depends on collaborative editing's real-world use of IP-restricted policies and should be demonstrated with an end-to-end test before external submission.
+The missing IP dimension, IP-sensitive policy selection, and cache lookup order are confirmed by source inspection. The room-join path separately validates read access, so the realistic scenario requires read access at both IPs and update access restricted to the allowed IP. The regression tests still need to be checked in CI, and an end-to-end WebSocket test must demonstrate that a disallowed-IP client can update the protected field before external submission.
