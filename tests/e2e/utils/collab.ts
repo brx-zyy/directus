@@ -12,8 +12,8 @@ export type CollabClient = TestSocket & {
 };
 
 /** Opens an authenticated socket with the helpers the collaborative editing protocol needs. */
-export async function openCollab(port: number, token = 'admin'): Promise<CollabClient> {
-	const socket = await openAuthenticatedSocket(`ws://localhost:${port}/websocket`, token);
+export async function openCollab(port: number, token = 'admin', protocols?: string | string[]): Promise<CollabClient> {
+	const socket = await openAuthenticatedSocket(`ws://localhost:${port}/websocket`, token, protocols);
 
 	const matcher = (action: string, match?: (message: any) => boolean) => (message: any) =>
 		message.type === 'collab' && message.action === action && (!match || match(message));
