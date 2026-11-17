@@ -248,7 +248,7 @@ export class PermissionCache {
 		item: string | null,
 		action: string,
 	): CacheKey {
-		return `${accountability.user || 'public'}:${collection}:${item || 'singleton'}:${action}`;
+		return `${accountability.user || 'public'}:${accountability.ip || 'unknown'}:${collection}:${item || 'singleton'}:${action}`;
 	}
 
 	/**
