@@ -50,6 +50,8 @@ For a race test, reset the counter to zero and issue multiple requests concurren
 
 ## Evidence
 
+The application UI independently treats the limit as exhausted when `max_uses - times_used` reaches zero (`app/src/routes/shared/shared.vue` and `app/src/views/private/components/share-item.vue`). This corroborates that equality should be rejected by the authentication endpoint.
+
 The relevant source is in `api/src/services/shares.ts`, in `SharesService.login()`:
 
 - The eligibility query uses `max_uses >= times_used`.
@@ -57,7 +59,7 @@ The relevant source is in `api/src/services/shares.ts`, in `SharesService.login(
 - The update is filtered only by share ID.
 - Access and refresh tokens are generated after the update.
 
-A regression assertion was added on the audit branch to require a strict greater-than predicate. GitHub Actions failed that assertion and printed the generated SQL containing `("max_uses" is null or "max_uses" >= "times_used")`.
+A regression assertion was added on the audit branch to require a strict greater-than predicate. GitHub Actions failed that assertion and printed the generated SQL containing `("max_uses" is null or "max_uses" >= "times_used")`. A separate fix branch changes the predicate to strict greater-than, and the isolated share-service regression test passes there.
 
 ## Recommended remediation
 
