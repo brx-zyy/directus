@@ -43,18 +43,34 @@ await expectStatus('Admin login', adminLogin, 200);
 const adminToken = adminLogin.json.data?.access_token;
 if (!adminToken) throw new Error('Admin login did not return data.access_token');
 
-const me = await request('/users/me?fields=id', { token: adminToken });
-await expectStatus('Get admin user', me, 200);
-const userId = me.json.data?.id;
-if (!userId) throw new Error('Could not determine admin user ID');
+const collectionsResult = await request('/collections?fields=collection&limit=100', { token: adminToken });
+await expectStatus('List collections', collectionsResult, 200);
+const collectionNames = (collectionsResult.json.data ?? []).map((entry) => entry.collection);
+
+let target;
+for (const collection of collectionNames) {
+  const items = await request(`/items/${encodeURIComponent(collection)}?limit=1&fields=*`, { token: adminToken });
+  if (items.status === 200 && Array.isArray(items.json.data) && items.json.data.length > 0) {
+    const item = items.json.data[0];
+    const primaryKey = item.id ?? item.uuid;
+    if (primaryKey !== undefined && primaryKey !== null) {
+      target = { collection, item: primaryKey };
+      break;
+    }
+  }
+}
+if (!target) {
+  throw new Error(`Could not find a readable collection with an existing id-keyed item. Collections: ${collectionNames.join(', ')}`);
+}
+console.log(`Using existing item ${target.collection}/${target.item} for the share.`);
 
 const createShare = await request('/shares', {
   method: 'POST',
   token: adminToken,
   body: {
     name: 'HTTP max_uses security reproduction',
-    collection: 'directus_users',
-    item: userId,
+    collection: target.collection,
+    item: target.item,
     max_uses: 1,
   },
 });
@@ -88,9 +104,9 @@ if (maxUses !== 1 || timesUsed !== 2) {
 }
 console.log(`Counter verified over HTTP: max_uses=${maxUses}, times_used=${timesUsed}.`);
 
-const sharedRead = await request(`/items/directus_users/${userId}?fields=id,email`, { token: shareToken });
+const sharedRead = await request(`/items/${encodeURIComponent(target.collection)}/${encodeURIComponent(target.item)}?fields=*`, { token: shareToken });
 await expectStatus('Read shared item using second token', sharedRead, 200);
-if (sharedRead.json.data?.id !== userId) {
+if ((sharedRead.json.data?.id ?? sharedRead.json.data?.uuid) !== target.item) {
   throw new Error(`Share token did not return the expected shared item: ${JSON.stringify(sharedRead.json)}`);
 }
 console.log('Shared item read using the SECOND token: HTTP 200.');
