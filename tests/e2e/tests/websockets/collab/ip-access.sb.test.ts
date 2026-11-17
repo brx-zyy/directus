@@ -40,38 +40,58 @@ test('collaborative update permission is not reused across client IP addresses',
 	const item = await api.request(createItem(collections.items, { title: 'Original Title' } as any));
 	const token = randomUUID();
 
-	await api.request(
+	const user = await api.request(
 		createUser({
 			first_name: 'IP Restricted',
 			last_name: 'Collab',
 			email: `${token}@collab.example.com`,
 			password: 'secret',
 			token,
-			policies: [
-				{
-					policy: {
-						name: `Collab read ${token}`,
-						admin_access: false,
-						app_access: true,
-						permissions: [
-							{ collection: collections.items, action: 'read', fields: ['*'], permissions: {}, validation: {}, presets: {} },
-						],
-					},
-				},
-				{
-					policy: {
-						name: `Collab update ${token}`,
-						admin_access: false,
-						app_access: true,
-						ip_access: ['203.0.113.10/32'],
-						permissions: [
-							{ collection: collections.items, action: 'update', fields: ['title'], permissions: {}, validation: {}, presets: {} },
-						],
-					},
-				},
-			],
 		} as any),
 	);
+
+	// Seed policy/access rows directly so the test doesn't depend on the app's
+	// custom-permission UI feature flag. The runtime permission evaluator still
+	// reads these real policy and permission records from SQLite.
+	const readPolicyId = randomUUID();
+	const updatePolicyId = randomUUID();
+
+	await directus.knex!('directus_policies').insert([
+		{ id: readPolicyId, name: `Collab read ${token}`, admin_access: false, app_access: true, ip_access: null },
+		{
+			id: updatePolicyId,
+			name: `Collab update ${token}`,
+			admin_access: false,
+			app_access: true,
+			ip_access: JSON.stringify(['203.0.113.10/32']),
+		},
+	]);
+
+	await directus.knex!('directus_access').insert([
+		{ id: randomUUID(), user: user.id, policy: readPolicyId, sort: 1 },
+		{ id: randomUUID(), user: user.id, policy: updatePolicyId, sort: 2 },
+	]);
+
+	await directus.knex!('directus_permissions').insert([
+		{
+			policy: readPolicyId,
+			collection: collections.items,
+			action: 'read',
+			fields: '*',
+			permissions: '{}',
+			validation: '{}',
+			presets: '{}',
+		},
+		{
+			policy: updatePolicyId,
+			collection: collections.items,
+			action: 'update',
+			fields: 'title',
+			permissions: '{}',
+			validation: '{}',
+			presets: '{}',
+		},
+	]);
 
 	const allowed = await openCollab(directus.apis[0]!.port, token, '203.0.113.10');
 	const denied = await openCollab(directus.apis[0]!.port, token, '198.51.100.20');
