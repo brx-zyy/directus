@@ -85,8 +85,12 @@ export async function openSocket(url: string, protocols?: string | string[]): Pr
 }
 
 /** Opens a socket and authenticates it with a token, returning once the server confirms. */
-export async function openAuthenticatedSocket(url: string, access_token: string): Promise<TestSocket> {
-	const socket = await openSocket(url);
+export async function openAuthenticatedSocket(
+	url: string,
+	access_token: string,
+	protocols?: string | string[],
+): Promise<TestSocket> {
+	const socket = await openSocket(url, protocols);
 
 	socket.send({ type: 'auth', access_token });
 
