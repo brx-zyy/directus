@@ -1,0 +1,27 @@
+name: Security Audit - Share max_uses reproduction
+
+on:
+  push:
+    branches:
+      - "security-audit/**"
+    paths:
+      - "api/src/services/shares-max-uses.security.test.ts"
+      - "api/src/services/shares.ts"
+      - ".github/workflows/security-audit-share-limit.yml"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  share-max-uses:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+      - name: Install and build Directus workspace
+        uses: ./.github/actions/prepare
+      - name: Run SQLite-backed share login reproduction
+        run: pnpm --filter @directus/api exec vitest run src/services/shares-max-uses.security.test.ts
