@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createDirectus, createItem, createUser, rest, staticToken, updateSettings } from '@directus/sdk';
+import { LICENSE_KEYS } from '../../license/__fixtures__/licenses.js';
 import { openCollab } from '@utils/collab.js';
 import { database } from '@utils/constants.js';
 import { getUID } from '@utils/getUID.js';
@@ -18,10 +19,12 @@ const directus = await useSandbox(database, {
 	env: {
 		DB_FILENAME: `directus_test_${uid}.db`,
 		IP_CUSTOM_HEADER: 'sec-websocket-protocol',
+		LICENSE_KEY: LICENSE_KEYS.UNLIMITED,
 	},
 	docker: { suffix: uid },
 	cache: false,
 	knex: true,
+	extras: { license: true },
 });
 
 const apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
