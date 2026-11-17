@@ -49,8 +49,9 @@ test('a share configured for one use rejects the second authentication', async (
 		headers: { Authorization: 'Bearer admin', 'Content-Type': 'application/json' },
 		body: JSON.stringify({ collection, item: item.id, max_uses: 1 }),
 	});
-	expect(createShare.status).toBe(200);
-	const { data: share } = await createShare.json();
+	const createShareBody = await createShare.json();
+	expect(createShare.status, JSON.stringify(createShareBody)).toBe(200);
+	const { data: share } = createShareBody;
 
 	const authenticate = () =>
 		fetch(`${apiUrl}/shares/auth`, {
