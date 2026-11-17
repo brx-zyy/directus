@@ -211,7 +211,9 @@ describe('Room.verifyPermissions', () => {
 		const allowedIpClient = getAccountability({ user: 'same-user', ip: '203.0.113.10' });
 		const disallowedIpClient = getAccountability({ user: 'same-user', ip: '198.51.100.20' });
 
-		vi.mocked(fetchPolicies).mockResolvedValueOnce(['allowed-ip-policy']).mockResolvedValueOnce([]);
+		vi.mocked(fetchPolicies).mockImplementation(async ({ ip }) =>
+			ip === '203.0.113.10' ? ['allowed-ip-policy'] : [],
+		);
 		vi.mocked(fetchPermissions).mockResolvedValue([
 			{
 				fields: ['private_field'],
@@ -219,7 +221,9 @@ describe('Room.verifyPermissions', () => {
 				validation: {},
 			},
 		] as any);
-		vi.mocked(fetchAllowedFields).mockResolvedValueOnce(['private_field']).mockResolvedValueOnce([]);
+		vi.mocked(fetchAllowedFields).mockImplementation(async ({ accountability }) =>
+			accountability?.ip === '203.0.113.10' ? ['private_field'] : [],
+		);
 
 		const allowedFields = await verifyPermissions(allowedIpClient, collection, item, 'update', {
 			knex: getDatabase(),
