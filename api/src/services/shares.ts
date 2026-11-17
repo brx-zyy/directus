@@ -118,7 +118,7 @@ export class SharesService extends ItemsService {
 				subQuery.whereNull('date_start').orWhere('date_start', '<=', new Date());
 			})
 			.andWhere((subQuery) => {
-				subQuery.whereNull('max_uses').orWhere('max_uses', '>=', this.knex.ref('times_used'));
+				subQuery.whereNull('max_uses').orWhere('max_uses', '>', this.knex.ref('times_used'));
 			})
 			.first();
 
