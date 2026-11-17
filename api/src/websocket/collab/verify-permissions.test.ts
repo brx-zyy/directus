@@ -206,6 +206,35 @@ describe('Room.verifyPermissions', () => {
 		expect(validateItemAccess).toHaveBeenCalled();
 	});
 
+
+	test('does not reuse allowed-IP collaborative permissions for a disallowed IP', async () => {
+		const allowedIpClient = getAccountability({ user: 'same-user', ip: '203.0.113.10' });
+		const disallowedIpClient = getAccountability({ user: 'same-user', ip: '198.51.100.20' });
+
+		vi.mocked(fetchPolicies).mockResolvedValueOnce(['allowed-ip-policy']).mockResolvedValueOnce([]);
+		vi.mocked(fetchPermissions).mockResolvedValue([
+			{
+				fields: ['private_field'],
+				permissions: {},
+				validation: {},
+			},
+		] as any);
+		vi.mocked(fetchAllowedFields).mockResolvedValueOnce(['private_field']).mockResolvedValueOnce([]);
+
+		const allowedFields = await verifyPermissions(allowedIpClient, collection, item, 'read', {
+			knex: getDatabase(),
+			schema: await getSchema(),
+		});
+		const disallowedFields = await verifyPermissions(disallowedIpClient, collection, item, 'read', {
+			knex: getDatabase(),
+			schema: await getSchema(),
+		});
+
+		expect(allowedFields).toEqual(['private_field']);
+		expect(disallowedFields).toEqual([]);
+		expect(fetchPolicies).toHaveBeenCalledTimes(2);
+	});
+
 	test('TTL Accuracy ($NOW)', async () => {
 		const client = getAccountability({ uid: 'client-1' });
 
