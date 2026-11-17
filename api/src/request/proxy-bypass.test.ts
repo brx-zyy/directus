@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { _cache, getAxios } from './index.js';
 
 const { isDeniedIp } = vi.hoisted(() => ({
-	isDeniedIp: vi.fn((ip: string) => ip === '10.0.0.1'),
+	isDeniedIp: vi.fn((ip: string) => ip === '169.254.169.254'),
 }));
 
 vi.mock('./is-denied-ip.js', () => ({ isDeniedIp }));
@@ -39,12 +39,12 @@ it('does not validate the target IP when Axios sends the request through an envi
 		process.env['no_proxy'] = '';
 
 		const axios = await getAxios();
-		const response = await axios.get('http://10.0.0.1:8080/private');
+		const response = await axios.get('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
 
 		expect(response.data).toBe('internal-response');
-		expect(received).toEqual(['http://10.0.0.1:8080/private']);
+		expect(received).toEqual(['http://169.254.169.254/latest/meta-data/iam/security-credentials/']);
 		expect(isDeniedIp).toHaveBeenCalledWith('127.0.0.1');
-		expect(isDeniedIp).not.toHaveBeenCalledWith('10.0.0.1');
+		expect(isDeniedIp).not.toHaveBeenCalledWith('169.254.169.254');
 	} finally {
 		for (const key of envKeys) {
 			const value = previousEnv[key];
