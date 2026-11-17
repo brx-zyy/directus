@@ -959,6 +959,25 @@ describe('Service / Files', () => {
 			expect(uploadOneSpy).not.toHaveBeenCalled();
 		});
 
+		test('enforces FILES_MAX_UPLOAD_SIZE for URL imports', async () => {
+			mockEnvOverrides['FILES_MAX_UPLOAD_SIZE'] = '5b';
+
+			mockAxiosGet.mockResolvedValue({
+				headers: { 'content-type': 'image/jpeg' },
+				data: Readable.from([Buffer.alloc(10)]),
+				request: { res: { responseUrl: 'https://example.com/photo.jpg' } },
+			});
+
+			uploadOneSpy.mockImplementation(async (stream: Readable) => {
+				for await (const _chunk of stream) {
+					// Consume the imported response as the storage adapter would.
+				}
+				return 'imported-file-id';
+			});
+
+			await expect(service.importOne('https://example.com/photo.jpg', {})).rejects.toThrow();
+		});
+
 		test('succeeds when MIME type is permitted by the global allow list', async () => {
 			mockEnvOverrides['FILES_MIME_TYPE_ALLOW_LIST'] = ['image/*'];
 
