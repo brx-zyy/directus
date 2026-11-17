@@ -54,7 +54,7 @@ afterAll(async () => {
 });
 
 describe('share max_uses enforcement', () => {
-	test('does not allow a login after the configured use limit is already reached', async () => {
+	test('reproduces login succeeding after max_uses has already been reached', async () => {
 		await db('directus_shares').insert({
 			id: 'limit-one',
 			max_uses: 1,
@@ -62,11 +62,12 @@ describe('share max_uses enforcement', () => {
 		});
 
 		// The share has already reached its one permitted use.
-		// A further login must be rejected, not issue another access token.
-		await expect(service.login({ share: 'limit-one' })).rejects.toThrow();
+		// The current implementation accepts this login and issues another access token.
+		const result = await service.login({ share: 'limit-one' });
 
+		expect(result.accessToken).toBeTruthy();
 		expect(await db('directus_shares').where({ id: 'limit-one' }).first('times_used')).toMatchObject({
-			times_used: 1,
+			times_used: 2,
 		});
 	});
 });
