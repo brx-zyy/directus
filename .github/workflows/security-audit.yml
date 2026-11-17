@@ -32,6 +32,9 @@ jobs:
       - name: Install and build Directus workspace
         uses: ./.github/actions/prepare
 
+      - name: Run collaborative permission cache isolation regression
+        run: pnpm --filter @directus/api exec vitest run src/websocket/collab/permissions-cache.test.ts
+
       - name: Run authentication session regression tests
         run: pnpm --filter @directus/api exec vitest run src/services/authentication.test.ts src/services/shares.test.ts src/request/proxy-bypass.test.ts src/services/files.test.ts
 
