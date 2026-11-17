@@ -23,7 +23,7 @@ jobs:
       DB_CLIENT: sqlite3
       DB_FILENAME: /tmp/directus-share-http-poc.db
       SECRET: security-audit-http-poc-secret-at-least-32-bytes
-      ADMIN_EMAIL: poc-admin@example.test
+      ADMIN_EMAIL: security-poc@example.com
       ADMIN_PASSWORD: POC-Only-Password-12345
       HOST: 127.0.0.1
       PORT: 8055
@@ -54,4 +54,4 @@ jobs:
         run: node security-tests/share-max-uses-http-poc.mjs
       - name: Show Directus server log on failure
         if: failure()
-        run: cat /tmp/directus-http-poc.log
+        run: if [ -f /tmp/directus-http-poc.log ]; then cat /tmp/directus-http-poc.log; else echo 'Server did not start'; fi
