@@ -1,0 +1,57 @@
+name: Security Audit - Share max_uses full HTTP reproduction
+
+on:
+  push:
+    branches:
+      - "security-audit/share-max-uses-http-poc"
+    paths:
+      - "security-tests/share-max-uses-http-poc.mjs"
+      - ".github/workflows/security-audit-share-http.yml"
+      - "api/src/services/shares.ts"
+      - "api/src/controllers/shares.ts"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  share-max-uses-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      DB_CLIENT: sqlite3
+      DB_FILENAME: /tmp/directus-share-http-poc.db
+      SECRET: security-audit-http-poc-secret-at-least-32-bytes
+      ADMIN_EMAIL: poc-admin@example.test
+      ADMIN_PASSWORD: POC-Only-Password-12345
+      HOST: 127.0.0.1
+      PORT: 8055
+      PUBLIC_URL: http://127.0.0.1:8055
+      SERVE_APP: "false"
+      TELEMETRY: "false"
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+      - name: Install and build Directus workspace
+        uses: ./.github/actions/prepare
+      - name: Initialize isolated SQLite Directus instance
+        run: pnpm --filter @directus/api cli bootstrap
+      - name: Boot Directus HTTP server
+        run: |
+          nohup pnpm --filter @directus/api dev > /tmp/directus-http-poc.log 2>&1 &
+          echo $! > /tmp/directus-http-poc.pid
+          for i in $(seq 1 90); do
+            if curl --silent --fail http://127.0.0.1:8055/server/health >/dev/null; then
+              echo "Directus HTTP server is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/directus-http-poc.log
+          exit 1
+      - name: Reproduce max_uses bypass through real HTTP endpoints
+        run: node security-tests/share-max-uses-http-poc.mjs
+      - name: Show Directus server log on failure
+        if: failure()
+        run: cat /tmp/directus-http-poc.log
