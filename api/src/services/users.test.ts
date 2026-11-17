@@ -259,6 +259,12 @@ describe('Integration Tests', () => {
 				expect(opts.userIntegrityCheckFlags).toBe(UserIntegrityCheckFlag.All);
 			});
 
+			it('should revoke existing sessions when a user role is changed', async () => {
+				await service.updateMany(['user-id-role-revocation'], { role: testRoleId });
+
+				expect(clearUserSessionsSpy).toHaveBeenCalledWith(['user-id-role-revocation']);
+			});
+
 			it('should request all user integrity checks if status is changed to not "active"', async () => {
 				const opts: MutationOptions = {};
 
