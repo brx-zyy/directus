@@ -29,7 +29,7 @@ const directus = await useSandbox(database, {
 
 const apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
 const api = createDirectus<Schema>(apiUrl).with(rest()).with(staticToken('admin'));
-await api.request(updateSettings({ collaborative_editing_enabled: true } as any));
+await api.request(updateSettings({ collaborative_editing_enabled: true, custom_permission_rules_enabled: true } as any));
 const { collections } = await useSnapshot<Schema>(api, snapshot);
 
 afterAll(async () => {
