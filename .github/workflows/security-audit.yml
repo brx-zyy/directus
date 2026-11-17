@@ -39,6 +39,11 @@ jobs:
         if: always()
         run: pnpm --filter @directus/api exec vitest run src/services/shares.test.ts
 
+      - name: Run share max-uses endpoint reproduction
+        if: always()
+        working-directory: tests/e2e
+        run: pnpm exec vitest run --project sqlite-sb tests/endpoints/shares/max-uses.sb.test.ts --no-file-parallelism
+
       - name: Run file endpoint integration tests
         if: always()
         working-directory: tests/e2e
