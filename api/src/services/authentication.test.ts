@@ -508,6 +508,17 @@ describe('Integration Tests', () => {
 				expect(mockLogoutProvider.logout).toHaveBeenCalledOnce();
 			});
 
+			it('should revoke share sessions on logout', async () => {
+				// Share sessions have no directus_users row. Logout must still delete the session
+				// so a copied session JWT stops passing verifySessionJWT.
+				tracker.on.select('directus_sessions').responseOnce([]);
+				tracker.on.delete('directus_sessions').responseOnce(1);
+
+				await service.logout('share-session-token');
+
+				expect(tracker.history.delete).toHaveLength(1);
+			});
+
 			it('should ignore logout requests for OAuth sessions', async () => {
 				tracker.on.select('directus_sessions').responseOnce([]);
 
