@@ -47,7 +47,7 @@ const collection = 'poc_share_items';
 const createCollection = await request('/collections', {
   method: 'POST',
   token: adminToken,
-  body: { collection, schema: {} },
+  body: { collection, schema: {}, meta: {} },
 });
 await expectStatus('Create isolated test collection', createCollection, 200);
 
