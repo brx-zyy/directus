@@ -87,7 +87,7 @@ describe('SharesService', () => {
 			await service.login({ share: 'share-id' });
 
 			const lookup = tracker.history.select.find((query) => query.sql.includes('directus_shares'));
-			expect(lookup?.sql).not.toContain('>=');
+			expect(lookup?.sql).toMatch(/"max_uses"\s*>\s*"times_used"/);
 		});
 	});
 
