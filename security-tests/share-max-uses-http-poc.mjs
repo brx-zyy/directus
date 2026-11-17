@@ -43,34 +43,33 @@ await expectStatus('Admin login', adminLogin, 200);
 const adminToken = adminLogin.json.data?.access_token;
 if (!adminToken) throw new Error('Admin login did not return data.access_token');
 
-const collectionsResult = await request('/collections?fields=collection&limit=100', { token: adminToken });
-await expectStatus('List collections', collectionsResult, 200);
-const collectionNames = (collectionsResult.json.data ?? []).map((entry) => entry.collection);
+const collection = 'poc_share_items';
+const createCollection = await request('/collections', {
+  method: 'POST',
+  token: adminToken,
+  body: { collection, schema: {} },
+});
+await expectStatus('Create isolated test collection', createCollection, 200);
 
-let target;
-for (const collection of collectionNames) {
-  const items = await request(`/items/${encodeURIComponent(collection)}?limit=1&fields=*`, { token: adminToken });
-  if (items.status === 200 && Array.isArray(items.json.data) && items.json.data.length > 0) {
-    const item = items.json.data[0];
-    const primaryKey = item.id ?? item.uuid;
-    if (primaryKey !== undefined && primaryKey !== null) {
-      target = { collection, item: primaryKey };
-      break;
-    }
-  }
+const createItem = await request(`/items/${collection}`, {
+  method: 'POST',
+  token: adminToken,
+  body: {},
+});
+await expectStatus('Create isolated shared item', createItem, 200);
+const itemId = createItem.json.data?.id;
+if (itemId === undefined || itemId === null) {
+  throw new Error(`Test item creation returned no id: ${JSON.stringify(createItem.json)}`);
 }
-if (!target) {
-  throw new Error(`Could not find a readable collection with an existing id-keyed item. Collections: ${collectionNames.join(', ')}`);
-}
-console.log(`Using existing item ${target.collection}/${target.item} for the share.`);
+console.log(`Created test item ${collection}/${itemId}.`);
 
 const createShare = await request('/shares', {
   method: 'POST',
   token: adminToken,
   body: {
     name: 'HTTP max_uses security reproduction',
-    collection: target.collection,
-    item: target.item,
+    collection,
+    item: itemId,
     max_uses: 1,
   },
 });
@@ -104,9 +103,9 @@ if (maxUses !== 1 || timesUsed !== 2) {
 }
 console.log(`Counter verified over HTTP: max_uses=${maxUses}, times_used=${timesUsed}.`);
 
-const sharedRead = await request(`/items/${encodeURIComponent(target.collection)}/${encodeURIComponent(target.item)}?fields=*`, { token: shareToken });
+const sharedRead = await request(`/items/${collection}/${itemId}?fields=*`, { token: shareToken });
 await expectStatus('Read shared item using second token', sharedRead, 200);
-if ((sharedRead.json.data?.id ?? sharedRead.json.data?.uuid) !== target.item) {
+if (sharedRead.json.data?.id !== itemId) {
   throw new Error(`Share token did not return the expected shared item: ${JSON.stringify(sharedRead.json)}`);
 }
 console.log('Shared item read using the SECOND token: HTTP 200.');
