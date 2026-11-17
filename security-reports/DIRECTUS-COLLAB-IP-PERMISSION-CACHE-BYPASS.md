@@ -1,72 +1,67 @@
-# Collaborative WebSocket permission cache omits client IP
+# Advisory Details
 
-**Status:** Strong candidate; cache-key collision is directly testable, but end-to-end exploitation still needs verification  
-**Affected component:** Collaborative editing WebSocket permission checks  
-**Relevant files:**
-- `api/src/websocket/collab/permissions-cache.ts`
-- `api/src/websocket/collab/verify-permissions.ts`
-- `api/src/permissions/lib/fetch-policies.ts`
-- `api/src/permissions/utils/filter-policies-by-ip.ts`
+**Title:** Collaborative editing permission cache may reuse IP-restricted permissions across client IPs
 
-## Summary
+**Summary**
 
-The collaborative editing permission cache keys entries by user, collection, item, and action:
+The collaborative-editing permission cache key includes the user, collection, item, and action, but omits the client IP. The policy-fetching path applies IP-based policy filtering. Therefore, a cached permission result generated for an allowed IP can collide with a permission check from a different IP for the same user and resource.
+
+**Validation status: NOT CONFIRMED end-to-end.** Unit-level tests exercise the cache collision using mocked policy results. No real WebSocket session has yet demonstrated that a client from a disallowed IP can modify a protected field.
+
+## Details
+
+In `api/src/websocket/collab/permissions-cache.ts`, the original cache key is:
 
 ```ts
 return `${accountability.user || 'public'}:${collection}:${item || 'singleton'}:${action}`;
 ```
 
-It does not include the client IP address.
+The key does not include `accountability.ip`.
 
-However, permission policy selection is IP-sensitive. `fetchPolicies()` passes `ip` into `_fetchPolicies()`, which filters access rows using `filterPoliciesByIp(accessRows, ip)`. The collaborative permission verifier calls `permissionCache.get()` before fetching policies.
+The collaborative permission verifier checks this cache before fetching policies. The policy-fetching path, however, passes the client IP into policy filtering. This creates a mismatch: the policy result can depend on IP while the cache identity does not.
 
-Consequently, two WebSocket connections authenticated as the same user, targeting the same collection/item/action, but originating from different IP addresses can collide in the process-wide permission cache. A key exploitation scenario is a user who has general read access (so both connections can join the room) but has update permission restricted to an allowed IP range. If an allowed-IP connection populates the update-permission cache first, a connection from a disallowed IP may reuse those cached update fields without evaluating its own IP policy set.
+A plausible scenario requires careful conditions:
 
-## Attack preconditions
+- The same user has general read access from both client IPs, so both clients can join the collaborative room.
+- The user's update permission for a sensitive field is granted only from an allowed IP range.
+- The allowed-IP connection causes the update permission result to be cached first.
+- A connection from a disallowed IP then requests the same user's update permission for the same collection/item/action while that cache entry remains valid.
 
-- Collaborative editing is enabled and reachable.
-- The victim account has a policy whose access is restricted by IP.
-- The same account can establish connections from both an allowed and a disallowed network.
-- Both connections request permission checks for the same collection, item, and action while the cache entry remains live.
+The room-join path independently validates read access. Thus, this report does not claim that a disallowed IP can join a room without read permission.
 
-## Expected behavior
+## Proof of concept
 
-Permission results for different client IP addresses must not share a cache entry when IP access rules can affect the selected policies.
+**Status: unit-level cache collision reproduced; real WebSocket field modification not yet reproduced.**
 
-## Source-level evidence
+The candidate regression test in `api/src/websocket/collab/verify-permissions.test.ts` creates two accountability objects for the same user but different IPs. It mocks policy fetching so the allowed IP receives `private_field` and the disallowed IP receives no fields. The test then calls `verifyPermissions()` for both clients and expects the second result to be empty. With the original cache key, the second lookup can reuse the first result.
 
-1. `PermissionCache.getCacheKey()` includes user, collection, item, and action, but omits `accountability.ip`.
-2. `verifyPermissions()` checks the permission cache before calling `fetchPolicies()`.
-3. `fetchPolicies()` includes IP in its cache key and filters policy access rows by the supplied IP.
-4. Collaborative room access and field checks call `verifyPermissions()`.
+To complete an end-to-end reproduction, use a disposable Directus instance:
 
-## Regression test
+1. Enable collaborative editing.
+2. Create a test user and a test item containing a sensitive field such as `private_field`.
+3. Configure general read permission for the item from both test client IPs.
+4. Configure update permission for `private_field` only from the allowed test IP range.
+5. Connect to the collaborative room as that user from the allowed IP and trigger the update-permission check to populate the cache.
+6. Connect as the same user from a disallowed IP and join the same room using the general read permission.
+7. Attempt to modify `private_field` from the disallowed-IP connection.
+8. Record the WebSocket messages and persisted item value. Repeat with a fresh process/cache and reverse the connection order.
 
-A regression test was added to `api/src/websocket/collab/permissions-cache.test.ts`. It stores a permission result for one IP and expects a different IP to miss the cache. The current cache-key implementation is expected to fail this test.
+**Expected secure behavior:** the disallowed-IP client cannot update `private_field`.
 
-## Controlled reproduction outline
+**Suspected vulnerable behavior:** if the cache collision is exploitable in the full room update path, the disallowed-IP client may reuse the allowed-IP field permission and update the field. This outcome has not yet been observed.
 
-1. Configure an account with a collaborative-editing permission policy restricted to a specific allowed IP range.
-2. Give the account general read permission for the test item, but grant update permission for a sensitive test field only from the allowed IP range.
-3. From an allowed IP, authenticate as that account, open the collaborative room, and trigger an update-permission check for the test field so the cache is populated.
-4. From a disallowed IP, authenticate as the same account and join the same room. The general read permission should allow the join.
-5. Attempt to update the field whose update policy is restricted to the allowed IP range.
-6. Compare behavior with a fresh process/cache and with the allowed-IP update check performed first.
+## Impact
 
-Use only a test instance and test account. Do not attempt this against a third-party deployment.
+If the full WebSocket path accepts the cached permission, a user connecting from a network that is not authorized for a restricted update could modify fields that should only be writable from an allowed IP range. The impact is an IP-policy authorization bypass for collaborative editing. Actual exploitability and severity remain unverified pending the WebSocket reproduction.
 
-## Recommended remediation
+## Suggested remediation
 
-Include the normalized client IP (and any other policy-varying accountability dimensions) in the permission cache key, or scope this cache to the client connection. Add an integration test that exercises the allowed-IP-then-disallowed-IP order against actual policy evaluation.
+Include the normalized client IP and any other policy-varying accountability dimensions in the permission cache key, or scope the cache to the connection. Add an integration test that uses actual IP-filtered policies and attempts a protected-field update over WebSocket.
 
-## Reporting caveat
+## Test evidence
 
-The missing IP dimension, IP-sensitive policy selection, and cache lookup order are confirmed by source inspection. The room-join path separately validates read access, so the realistic scenario requires read access at both IPs and update access restricted to the allowed IP. The regression tests still need to be checked in CI, and an end-to-end WebSocket test must demonstrate that a disallowed-IP client can update the protected field before external submission.
-
-
-## Validation status
-
-- Original implementation: the permission-cache test fails because a result stored for one IP is returned for a different IP. The verifier-level test also returns `private_field` to the disallowed-IP accountability instead of an empty field list.
-- Fix experiment: branch [`security-audit/collab-ip-cache-fix`](https://github.com/brx-zyy/directus/tree/security-audit/collab-ip-cache-fix) adds the client IP to the cache key.
-- GitHub Actions on the fix branch: both collaborative permission-cache regression tests passed, and the file/TUS SQLite E2E suite passed.
-- Still outstanding: a real WebSocket integration test with an IP-restricted update policy, general read access from both IPs, and an attempted protected-field update from the disallowed IP.
+- Source inspection confirms the cache key omits IP while policy selection uses IP.
+- The candidate unit test models two IP-specific policy outcomes; it does not establish behavior of the real policy database or WebSocket update pipeline.
+- The fix branch `security-audit/collab-ip-cache-fix` adds the IP to the cache key.
+- GitHub Actions run [44078592178](https://github.com/brx-zyy/directus/actions/runs/44078592178) passed the focused cache tests on the **fix branch**. This validates the proposed fix against the unit tests, not end-to-end exploitability on the original implementation.
+- No successful protected-field modification from a disallowed IP has been captured.
