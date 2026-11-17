@@ -36,6 +36,7 @@ jobs:
         run: pnpm --filter @directus/api exec vitest run src/services/authentication.test.ts src/services/shares.test.ts src/request/proxy-bypass.test.ts
 
       - name: Run file endpoint integration tests
+        if: always()
         working-directory: tests/e2e
         env:
           LOG_LEVEL: debug
