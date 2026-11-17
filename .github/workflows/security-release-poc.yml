@@ -34,6 +34,9 @@ jobs:
       - name: Install repository dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build the actual release-notes generator package
+        run: pnpm --filter @directus/release-notes-generator build
+
       - name: Run actual Changesets release-note generator and write GITHUB_OUTPUT
         id: changeset-version
         env:
