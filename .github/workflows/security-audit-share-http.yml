@@ -30,6 +30,7 @@ jobs:
       PUBLIC_URL: http://127.0.0.1:8055
       SERVE_APP: "false"
       TELEMETRY: "false"
+      HEALTHCHECK_SERVICES: database
     steps:
       - name: Checkout fork
         uses: actions/checkout@v4
