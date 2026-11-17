@@ -1,0 +1,39 @@
+name: Security Audit - Directus File Upload Regression
+
+on:
+  push:
+    branches:
+      - "security-audit/**"
+    paths:
+      - "api/**"
+      - "tests/e2e/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/security-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  files-e2e:
+    name: File and TUS endpoint regression tests (SQLite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+
+      - name: Install and build Directus workspace
+        uses: ./.github/actions/prepare
+
+      - name: Run file endpoint integration tests
+        working-directory: tests/e2e
+        env:
+          LOG_LEVEL: debug
+        run: pnpm exec vitest run --project sqlite-sb tests/endpoints/files/files.sb.test.ts --no-file-parallelism
