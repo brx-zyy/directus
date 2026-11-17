@@ -44,6 +44,31 @@ describe('SharesService', () => {
 	});
 
 	describe('login', () => {
+		test('allows concurrent logins to exceed a one-use share limit', async () => {
+			tracker.on.select('directus_shares').response([
+				{
+					share_id: 'share-id',
+					share_start: null,
+					share_end: null,
+					share_times_used: 0,
+					share_max_uses: 1,
+					share_password: null,
+				},
+			]);
+			tracker.on.update('directus_shares').response([1]);
+			tracker.on.insert('directus_sessions').response([1]);
+			tracker.on.delete('directus_sessions').response(1);
+
+			const results = await Promise.all([
+				service.login({ share: 'share-id' }),
+				service.login({ share: 'share-id' }),
+			]);
+
+			expect(results).toHaveLength(2);
+			expect(tracker.history.insert.filter((query) => query.sql.includes('directus_sessions'))).toHaveLength(2);
+			expect(tracker.history.update.filter((query) => query.sql.includes('directus_shares'))).toHaveLength(2);
+		});
+
 		test('rejects login when max_uses has already been reached', async () => {
 			tracker.on.select('directus_shares').responseOnce([
 				{
