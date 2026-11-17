@@ -106,7 +106,13 @@ Do not interpolate generated release notes into a `run:` script or use a predict
 - Upstream source data flow: confirmed by inspection.
 - GitHub Actions runner output-file behavior: checked against the official `actions/runner` implementation.
 - Two-stage `GITHUB_OUTPUT` plus Bash heredoc exploit chain: reproduced locally; harmless marker file created and shell exited successfully.
-- Actual Directus `pnpm changeset version` invocation with the malicious changeset: not yet run.
-- Actual GitHub Actions `Prepare Release` workflow execution: not yet performed.
+- **Actual Directus release-notes generator: executed successfully in GitHub Actions.** The isolated test installed the repository dependencies, built `@directus/release-notes-generator`, and ran the real `pnpm changeset version` against the malicious `.changeset/live-release-poc.md`.
+- **Actual generated output and output-file handling: confirmed.** The workflow used the same `awk` extraction and `GITHUB_OUTPUT` heredoc-writing sequence as `.github/workflows/prepare-release.yml`.
+- **Actual second-stage shell injection: confirmed in GitHub-hosted Actions.** The next step interpolated `${{ steps.changeset-version.outputs.release_notes }}` into the same shell heredoc structure as the vulnerable `Create release PR` step. The marker file was created with the expected content, and the step asserted the exact marker value.
+- Live run: https://github.com/brx-zyy/directus/actions/runs/44090195006
+- Run commit: `6106061ee2560ed813cce6fad8eeabd25771fce5`
+- Evidence in the job log: `POC_CONFIRMED: injected shell command executed` followed by `DIRECTUS_LIVE_POC_CONFIRMED`.
+- Evidence artifact: `directus-release-notes-poc` (artifact ID `14330898274`), downloadable from the run's Artifacts section.
+- The original production `Prepare Release` workflow was not dispatched. The exploit chain was reproduced in an isolated workflow on the fork using the real Directus generator and the same vulnerable output/shell construction, without `RELEASE_PAT` or any secret access.
 - Secret access or exfiltration: not attempted.
 - This is a draft report in the research fork, not an upstream submission.
