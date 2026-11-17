@@ -68,6 +68,15 @@ describe('PermissionCache', () => {
 		expect(cache.get(mockAccountability, 'comments', '1', 'read')).toEqual(['D']);
 	});
 
+	test('does not reuse permission results across different client IP addresses', () => {
+		const allowedNetworkClient = { ...mockAccountability, ip: '203.0.113.10' };
+		const disallowedNetworkClient = { ...mockAccountability, ip: '198.51.100.20' };
+
+		cache.set(allowedNetworkClient, 'posts', '1', 'read', ['private_field']);
+
+		expect(cache.get(disallowedNetworkClient, 'posts', '1', 'read')).toBeUndefined();
+	});
+
 	test('ttl expires value', async () => {
 		vi.useFakeTimers();
 
