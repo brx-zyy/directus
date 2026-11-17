@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createCollection, createDirectus, createItem, rest, staticToken } from '@directus/sdk';
 import { database } from '@utils/constants.js';
 import { getUID } from '@utils/getUID.js';
@@ -44,20 +45,21 @@ test('a share configured for one use rejects the second authentication', async (
 	);
 
 	const item = await api.request(createItem(collection, { title: 'share limit test' }));
-	const createShare = await fetch(`${apiUrl}/shares`, {
-		method: 'POST',
-		headers: { Authorization: 'Bearer admin', 'Content-Type': 'application/json' },
-		body: JSON.stringify({ collection, item: item.id, max_uses: 1 }),
+	const shareId = randomUUID();
+	await directus.knex!('directus_shares').insert({
+		id: shareId,
+		name: 'one-use regression',
+		collection,
+		item: item.id,
+		max_uses: 1,
+		times_used: 0,
 	});
-	const createShareBody = await createShare.json();
-	expect(createShare.status, JSON.stringify(createShareBody)).toBe(200);
-	const { data: share } = createShareBody;
 
 	const authenticate = () =>
 		fetch(`${apiUrl}/shares/auth`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ share: share.id, mode: 'json' }),
+			body: JSON.stringify({ share: shareId, mode: 'json' }),
 		});
 
 	const first = await authenticate();
@@ -67,6 +69,6 @@ test('a share configured for one use rejects the second authentication', async (
 	const second = await authenticate();
 	expect(second.status).toBe(401);
 
-	const record = await directus.knex!('directus_shares').select('times_used', 'max_uses').where({ id: share.id }).first();
+	const record = await directus.knex!('directus_shares').select('times_used', 'max_uses').where({ id: shareId }).first();
 	expect(record).toMatchObject({ times_used: 1, max_uses: 1 });
 });
