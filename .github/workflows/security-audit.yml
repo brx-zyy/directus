@@ -38,6 +38,11 @@ jobs:
       - name: Run authentication session regression tests
         run: pnpm --filter @directus/api exec vitest run src/services/authentication.test.ts src/services/shares.test.ts src/request/proxy-bypass.test.ts src/services/files.test.ts
 
+      - name: Run collaborative IP permission endpoint reproduction
+        if: always()
+        working-directory: tests/e2e
+        run: pnpm exec vitest run --project sqlite-sb tests/websockets/collab/ip-access.sb.test.ts --no-file-parallelism
+
       - name: Run file endpoint integration tests
         if: always()
         working-directory: tests/e2e
