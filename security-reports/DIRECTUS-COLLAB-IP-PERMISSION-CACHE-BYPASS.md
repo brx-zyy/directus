@@ -62,3 +62,11 @@ Include the normalized client IP (and any other policy-varying accountability di
 ## Reporting caveat
 
 The missing IP dimension, IP-sensitive policy selection, and cache lookup order are confirmed by source inspection. The room-join path separately validates read access, so the realistic scenario requires read access at both IPs and update access restricted to the allowed IP. The regression tests still need to be checked in CI, and an end-to-end WebSocket test must demonstrate that a disallowed-IP client can update the protected field before external submission.
+
+
+## Validation status
+
+- Original implementation: the permission-cache test fails because a result stored for one IP is returned for a different IP. The verifier-level test also returns `private_field` to the disallowed-IP accountability instead of an empty field list.
+- Fix experiment: branch [`security-audit/collab-ip-cache-fix`](https://github.com/brx-zyy/directus/tree/security-audit/collab-ip-cache-fix) adds the client IP to the cache key.
+- GitHub Actions on the fix branch: both collaborative permission-cache regression tests passed, and the file/TUS SQLite E2E suite passed.
+- Still outstanding: a real WebSocket integration test with an IP-restricted update policy, general read access from both IPs, and an attempted protected-field update from the disallowed IP.
