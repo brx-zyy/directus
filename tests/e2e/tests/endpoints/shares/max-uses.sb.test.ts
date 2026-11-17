@@ -26,14 +26,20 @@ test('a share configured for one use rejects the second authentication', async (
 	const user = await directus.knex!('directus_users').select('id').first();
 	const shareId = randomUUID();
 
-	await directus.knex!('directus_shares').insert({
-		id: shareId,
-		name: 'one-use regression',
-		collection: 'directus_users',
-		item: user.id,
-		max_uses: 1,
-		times_used: 0,
-	});
+	try {
+		await directus.knex!('directus_shares').insert({
+			id: shareId,
+			name: 'one-use regression',
+			collection: 'directus_users',
+			item: user.id,
+			max_uses: 1,
+			times_used: 0,
+		});
+	} catch (error) {
+		const foreignKeys = await directus.knex!.raw("PRAGMA foreign_key_list('directus_shares')");
+		const collections = await directus.knex!('directus_collections').select('collection').where({ collection: 'directus_users' });
+		throw new Error(JSON.stringify({ error: String(error), user, foreignKeys, collections }));
+	}
 
 	const authenticate = () =>
 		fetch(`${apiUrl}/shares/auth`, {
