@@ -3,6 +3,7 @@ import { sandbox } from '@directus/sandbox';
 import { database } from '@utils/constants.js';
 import { sandboxPort } from '@utils/sandbox-port.js';
 import { useSandbox } from '@utils/sandbox.js';
+import { openAuthenticatedSocket } from '@utils/websocket.js';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 let directus: Awaited<ReturnType<typeof sandbox>>;
@@ -33,6 +34,7 @@ describe('role revocation', () => {
 			prefix: `role-revocation-${randomUUID()}`,
 			env: {
 				DB_FILENAME: `directus_test_role_revocation_${randomUUID()}.db`,
+				WEBSOCKETS_REST_AUTH: 'handshake',
 			},
 			docker: { suffix: randomUUID() },
 			cache: false,
@@ -132,5 +134,23 @@ describe('role revocation', () => {
 
 		const afterSuspension = await fetch(`${apiUrl}/roles`, { headers: { Cookie: sessionCookie } });
 		expect(afterSuspension.status).toBe(401);
+
+		// The HTTP session is revoked, but an already-authenticated WebSocket keeps its
+		// connection-time accountability until the JWT expiry timer fires.
+		const sessionToken = decodeURIComponent(sessionCookie.slice(sessionCookie.indexOf('=') + 1));
+		const ws = await openAuthenticatedSocket(`ws://127.0.0.1:${directus.apis[0].port}/websocket`, sessionToken);
+		try {
+			ws.send({ type: 'subscribe', collection: 'directus_roles', event: 'create', uid: 'role-events' });
+			const initial = await ws.next((message) => message.type === 'subscription' && message.uid === 'role-events');
+			expect(initial.event).toBe('init');
+
+			const roleCreated = await post('/roles', { name: `After-suspension-${randomUUID()}` });
+			const leaked = await ws.next(
+				(message) => message.type === 'subscription' && message.uid === 'role-events' && message.event === 'create',
+			);
+			expect(leaked.data.id).toBe(roleCreated.id);
+		} finally {
+			ws.close();
+		}
 	});
 });
