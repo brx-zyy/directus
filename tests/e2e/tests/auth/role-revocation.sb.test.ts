@@ -126,7 +126,7 @@ describe('role revocation', () => {
 		const downgradeEvent = await ws.next(
 			(message) => message.type === 'subscription' && message.uid === 'role-events' && message.event === 'create',
 		);
-		expect(downgradeEvent.data.id).toBe(roleCreatedAfterDowngrade.id);
+		expect(downgradeEvent.data[0].id).toBe(roleCreatedAfterDowngrade.id);
 
 		const newLogin = await request('/auth/login', {
 			method: 'POST',
@@ -154,7 +154,7 @@ describe('role revocation', () => {
 		const leaked = await ws.next(
 			(message) => message.type === 'subscription' && message.uid === 'role-events' && message.event === 'create',
 		);
-		expect(leaked.data.id).toBe(roleCreated.id);
+		expect(leaked.data[0].id).toBe(roleCreated.id);
 		ws.close();
 
 	});
