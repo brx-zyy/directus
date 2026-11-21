@@ -200,6 +200,62 @@ describe('/files/tus', () => {
 		expect(replaced?.id).toBe(created!.id);
 	});
 
+	test('prevents another authenticated user from resuming an in-progress TUS upload', async () => {
+		const victimToken = await createFilesUser([
+			{ action: 'create' },
+			{ action: 'read' },
+			{ action: 'update', permissions: { uploaded_by: { _eq: '$CURRENT_USER' } } },
+		]);
+		const attackerToken = await createFilesUser([
+			{ action: 'create' },
+			{ action: 'read' },
+			{ action: 'update', permissions: { uploaded_by: { _eq: '$CURRENT_USER' } } },
+		]);
+		const filename = `${randomUUID()}.bin`;
+		const encode = (value: string) => Buffer.from(value).toString('base64');
+
+		const created = await fetch(`${apiUrl}/files/tus`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${victimToken}`,
+				'Tus-Resumable': '1.0.0',
+				'Upload-Length': '6',
+				'Upload-Metadata': `filename_download ${encode(filename)},type ${encode('application/octet-stream')}`,
+			},
+		});
+		expect(created.status).toBe(201);
+		const uploadUrl = new URL(created.headers.get('location')!, apiUrl).toString();
+
+		const attackerPatch = await fetch(uploadUrl, {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${attackerToken}`,
+				'Tus-Resumable': '1.0.0',
+				'Upload-Offset': '0',
+				'Content-Type': 'application/offset+octet-stream',
+			},
+			body: Buffer.from('evil!!'),
+		});
+		expect(attackerPatch.status).toBe(404);
+
+		const victimPatch = await fetch(uploadUrl, {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${victimToken}`,
+				'Tus-Resumable': '1.0.0',
+				'Upload-Offset': '0',
+				'Content-Type': 'application/offset+octet-stream',
+			},
+			body: Buffer.from('safe!!'),
+		});
+		expect(victimPatch.status).toBe(204);
+
+		const file = await findFileByDownloadName(filename);
+		expect(file?.id).toBeDefined();
+		const downloaded = await api.request(readAssetArrayBuffer(file!.id));
+		expect(Buffer.from(downloaded).toString()).toBe('safe!!');
+	});
+
 	test('rejects a resumable upload from a user without create permission on files', async () => {
 		const token = await createFilesUser([{ action: 'read' }]);
 		const filenameDownload = `${randomUUID()}.bin`;
