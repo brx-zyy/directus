@@ -23,6 +23,7 @@ const directus = await useSandbox(database, {
   env: { DB_FILENAME: `directus_test_sort_row_${getUID()}.db` },
   docker: { suffix: getUID() },
   knex: true,
+  knex: true,
 });
 const apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
 const admin = createDirectus<unknown>(apiUrl).with(rest()).with(staticToken('admin'));
