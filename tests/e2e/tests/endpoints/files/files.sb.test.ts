@@ -201,8 +201,8 @@ describe('/files/tus', () => {
 	});
 
 	test('checks whether one anonymous client can overwrite another anonymous TUS upload when its URL is known', async () => {
-		const publicRole = await directus.knex!('directus_roles').select('id').where({ name: 'Public' }).first();
-		expect(publicRole?.id).toBeDefined();
+		const settings = await directus.knex!('directus_settings').select('public_role').first();
+		expect(settings?.public_role).toBeDefined();
 
 		const policy = await api.request<{ id: string }>(
 			createPolicy({
@@ -216,7 +216,7 @@ describe('/files/tus', () => {
 				],
 			}),
 		);
-		await directus.knex!('directus_access').insert({ role: publicRole.id, policy: policy.id });
+		await directus.knex!('directus_access').insert({ role: settings.public_role, policy: policy.id });
 
 		const filename = `anonymous-${randomUUID()}.bin`;
 		const encode = (value: string) => Buffer.from(value).toString('base64');
