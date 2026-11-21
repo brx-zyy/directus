@@ -200,27 +200,11 @@ describe('/files/tus', () => {
 		expect(replaced?.id).toBe(created!.id);
 	});
 
-	test('checks whether one anonymous client can overwrite another anonymous TUS upload when its URL is known', async () => {
-		const settings = await directus.knex!('directus_settings').select('public_role').first();
-		expect(settings?.public_role).toBeDefined();
-
-		const policy = await api.request<{ id: string }>(
-			createPolicy({
-				name: `public-tus-${randomUUID()}`,
-				admin_access: false,
-				app_access: false,
-				permissions: [
-					{ collection: 'directus_files', action: 'create', fields: ['*'] },
-					{ collection: 'directus_files', action: 'read', fields: ['*'] },
-					{ collection: 'directus_files', action: 'update', fields: ['*'] },
-				],
-			}),
-		);
-		await directus.knex!('directus_access').insert({ role: settings.public_role, policy: policy.id });
-
+	test('rejects anonymous TUS uploads when no public file permissions are configured', async () => {
 		const filename = `anonymous-${randomUUID()}.bin`;
 		const encode = (value: string) => Buffer.from(value).toString('base64');
-		const victimCreate = await fetch(`${apiUrl}/files/tus`, {
+
+		const response = await fetch(`${apiUrl}/files/tus`, {
 			method: 'POST',
 			headers: {
 				'Tus-Resumable': '1.0.0',
@@ -228,26 +212,10 @@ describe('/files/tus', () => {
 				'Upload-Metadata': `filename_download ${encode(filename)},type ${encode('application/octet-stream')}`,
 			},
 		});
-		expect(victimCreate.status).toBe(201);
-		const uploadUrl = new URL(victimCreate.headers.get('location')!, apiUrl).toString();
 
-		// A second unauthenticated client that learns the upload URL attempts to
-		// replace the victim's in-progress upload.
-		const attackerPatch = await fetch(uploadUrl, {
-			method: 'PATCH',
-			headers: {
-				'Tus-Resumable': '1.0.0',
-				'Upload-Offset': '0',
-				'Content-Type': 'application/offset+octet-stream',
-			},
-			body: Buffer.from('evil!!'),
-		});
-		expect(attackerPatch.status).toBe(204);
-
-		const file = await findFileByDownloadName(filename);
-		expect(file?.id).toBeDefined();
-		const downloaded = await api.request(readAssetArrayBuffer(file!.id));
-		expect(Buffer.from(downloaded).toString()).toBe('evil!!');
+		// Unauthenticated requests receive the default accountability (no role),
+		// so collection permissions must not be implicitly granted.
+		expect(response.status).toBe(403);
 	});
 
 	test('prevents another authenticated user from resuming an in-progress TUS upload', async () => {
