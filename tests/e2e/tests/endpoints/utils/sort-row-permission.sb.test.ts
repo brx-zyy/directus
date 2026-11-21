@@ -8,6 +8,7 @@ import { useSnapshot } from '@utils/use-snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, expect, test } from 'vitest';
 import { LICENSE_KEYS } from '../../license/__fixtures__/licenses.js';
+import { LICENSE_KEYS } from '../../license/__fixtures__/licenses.js';
 
 const schema = new SchemaBuilder()
   .collection('articles', (c) => {
@@ -25,6 +26,7 @@ const directus = await useSandbox(database, {
   extras: { license: true },
   docker: { suffix: getUID() },
   knex: true,
+  extras: { license: true },
 });
 const apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
 const admin = createDirectus<unknown>(apiUrl).with(rest()).with(staticToken('admin'));
