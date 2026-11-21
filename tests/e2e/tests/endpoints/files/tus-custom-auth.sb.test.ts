@@ -37,7 +37,6 @@ beforeAll(async () => {
 	// preserving role=null and user=null, so every unauthenticated client shares it.
 	await directus.knex!('directus_permissions').insert(
 		['create', 'read', 'update'].map((action) => ({
-			id: randomUUID(),
 			policy: PUBLIC_POLICY_ID,
 			collection: 'directus_files',
 			action,
