@@ -84,6 +84,20 @@ describe('role revocation', () => {
 		const before = await request('/roles', {}, oldToken);
 		expect(before.status).toBe(200);
 
+		// Also create a stateful session cookie before the role downgrade.
+		const sessionLogin = await request('/auth/login', {
+			method: 'POST',
+			body: JSON.stringify({ email, password: 'test-password', mode: 'session' }),
+			headers: { 'Content-Type': 'application/json' },
+		});
+		expect(sessionLogin.status).toBe(200);
+		const setCookie = sessionLogin.headers.get('set-cookie');
+		expect(setCookie).toBeTruthy();
+		const sessionCookie = setCookie!.split(';')[0]!;
+
+		const beforeSession = await fetch(`${apiUrl}/roles`, { headers: { Cookie: sessionCookie } });
+		expect(beforeSession.status).toBe(200);
+
 		const downgrade = await request(`/users/${user.id}`, {
 			method: 'PATCH',
 			body: JSON.stringify({ role: roleB.id }),
@@ -93,6 +107,11 @@ describe('role revocation', () => {
 		// The same pre-downgrade JWT should no longer retain role A's permissions.
 		const afterOldToken = await request('/roles', {}, oldToken);
 		expect(afterOldToken.status).toBe(200); // Existing JWT retains the role claim it was issued with.
+
+		// Stateful session JWTs are expected to be checked against directus_sessions.
+		// Verify whether a role downgrade invalidates the already-issued session token.
+		const afterOldSession = await fetch(`${apiUrl}/roles`, { headers: { Cookie: sessionCookie } });
+		expect(afterOldSession.status).toBe(403);
 
 		const newLogin = await request('/auth/login', {
 			method: 'POST',
