@@ -8,6 +8,7 @@ on:
       - "api/src/controllers/tus.ts"
       - "api/src/controllers/tus.test.ts"
       - "api/src/services/tus/**"
+      - "tests/e2e/tests/endpoints/files/files.sb.test.ts"
       - ".github/workflows/tus-authz-test.yml"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -40,3 +41,9 @@ jobs:
           src/services/tus/data-store.test.ts
           src/services/tus/server.test.ts
         working-directory: api
+
+      - name: Run two-user TUS HTTP integration test
+        run: >
+          pnpm --filter e2e exec vitest run --project sqlite-sb
+          tests/endpoints/files/files.sb.test.ts
+        working-directory: tests/e2e
