@@ -1,6 +1,5 @@
 import { createDirectus, createItem, createPolicy, createUser, rest, staticToken, updatePolicy } from '@directus/sdk';
 import { SchemaBuilder } from '@directus/schema-builder';
-import type { Permission } from '@directus/types';
 import { database } from '@utils/constants.js';
 import { getUID } from '@utils/getUID.js';
 import { sandboxPort } from '@utils/sandbox-port.js';
