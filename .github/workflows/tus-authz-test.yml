@@ -51,14 +51,13 @@ jobs:
           tests/endpoints/files/files.sb.test.ts
         working-directory: tests/e2e
 
-      - name: Run custom-auth anonymous TUS integration test
-        run: >
-          pnpm --filter e2e exec vitest run --project sqlite-sb
-          tests/endpoints/files/tus-custom-auth.sb.test.ts
-        working-directory: tests/e2e
-
       - name: Run role downgrade session test
         run: >
           pnpm --filter e2e exec vitest run --project sqlite-sb
           tests/auth/role-revocation.sb.test.ts
+        working-directory: tests/e2e
+      - name: Run custom-auth anonymous TUS integration test
+        run: >
+          pnpm --filter e2e exec vitest run --project sqlite-sb
+          tests/endpoints/files/tus-custom-auth.sb.test.ts
         working-directory: tests/e2e
