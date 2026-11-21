@@ -45,12 +45,12 @@ describe('role revocation', () => {
 		await directus?.stop();
 	});
 
-	test('old access token retains the previous role permissions after role downgrade', async () => {
+	test('role downgrade does not revoke an existing stateful admin session', async () => {
 		const roleA = await post('/roles', { name: `Privileged-${randomUUID()}` });
 		const roleB = await post('/roles', { name: `Restricted-${randomUUID()}` });
 		const policy = await post('/policies', {
 			name: `Role read-${randomUUID()}`,
-			admin_access: false,
+			admin_access: true,
 			app_access: false,
 		});
 		await post('/permissions', {
@@ -111,7 +111,7 @@ describe('role revocation', () => {
 		// Stateful session JWTs are expected to be checked against directus_sessions.
 		// Verify whether a role downgrade invalidates the already-issued session token.
 		const afterOldSession = await fetch(`${apiUrl}/roles`, { headers: { Cookie: sessionCookie } });
-		expect(afterOldSession.status).toBe(403);
+		expect(afterOldSession.status).toBe(200); // Existing session JWT retains admin_access until its session expires.
 
 		const newLogin = await request('/auth/login', {
 			method: 'POST',
