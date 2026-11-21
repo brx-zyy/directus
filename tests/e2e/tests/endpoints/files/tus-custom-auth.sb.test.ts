@@ -66,6 +66,17 @@ test('custom authenticate hook with public file update permission allows a secon
 	});
 	expect(victimCreate.status).toBe(201);
 	const uploadUrl = new URL(victimCreate.headers.get('location')!, apiUrl).toString();
+	const fileBeforePatch = await directus.knex!('directus_files').select('id').where({ filename_download: filename }).first();
+	expect(fileBeforePatch?.id).toBeDefined();
+
+	// The ordinary item-update endpoint must reject this same record because
+	// the configured update row filter cannot match its ID.
+	const normalUpdate = await fetch(`${apiUrl}/files/${fileBeforePatch.id}`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ title: 'unauthorized change' }),
+	});
+	expect(normalUpdate.status).toBe(403);
 
 	// A separate anonymous HTTP client is given the victim's upload URL.
 	const attackerPatch = await fetch(uploadUrl, {
