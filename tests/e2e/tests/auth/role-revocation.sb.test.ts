@@ -100,6 +100,13 @@ describe('role revocation', () => {
 		const beforeSession = await fetch(`${apiUrl}/roles`, { headers: { Cookie: sessionCookie } });
 		expect(beforeSession.status).toBe(200);
 
+		// Open a WebSocket while the session is still valid and subscribe to privileged role events.
+		const sessionToken = decodeURIComponent(sessionCookie.slice(sessionCookie.indexOf('=') + 1));
+		const ws = await openAuthenticatedSocket(`ws://127.0.0.1:${directus.apis[0].port}/websocket`, sessionToken);
+		ws.send({ type: 'subscribe', collection: 'directus_roles', event: 'create', uid: 'role-events' });
+		const initial = await ws.next((message) => message.type === 'subscription' && message.uid === 'role-events');
+		expect(initial.event).toBe('init');
+
 		const downgrade = await request(`/users/${user.id}`, {
 			method: 'PATCH',
 			body: JSON.stringify({ role: roleB.id }),
@@ -135,22 +142,14 @@ describe('role revocation', () => {
 		const afterSuspension = await fetch(`${apiUrl}/roles`, { headers: { Cookie: sessionCookie } });
 		expect(afterSuspension.status).toBe(401);
 
-		// The HTTP session is revoked, but an already-authenticated WebSocket keeps its
-		// connection-time accountability until the JWT expiry timer fires.
-		const sessionToken = decodeURIComponent(sessionCookie.slice(sessionCookie.indexOf('=') + 1));
-		const ws = await openAuthenticatedSocket(`ws://127.0.0.1:${directus.apis[0].port}/websocket`, sessionToken);
-		try {
-			ws.send({ type: 'subscribe', collection: 'directus_roles', event: 'create', uid: 'role-events' });
-			const initial = await ws.next((message) => message.type === 'subscription' && message.uid === 'role-events');
-			expect(initial.event).toBe('init');
+		// The HTTP session is revoked, but the existing WebSocket retains its connection-time
+		// accountability and still receives administrator-only events until token expiry.
+		const roleCreated = await post('/roles', { name: `After-suspension-${randomUUID()}` });
+		const leaked = await ws.next(
+			(message) => message.type === 'subscription' && message.uid === 'role-events' && message.event === 'create',
+		);
+		expect(leaked.data.id).toBe(roleCreated.id);
+		ws.close();
 
-			const roleCreated = await post('/roles', { name: `After-suspension-${randomUUID()}` });
-			const leaked = await ws.next(
-				(message) => message.type === 'subscription' && message.uid === 'role-events' && message.event === 'create',
-			);
-			expect(leaked.data.id).toBe(roleCreated.id);
-		} finally {
-			ws.close();
-		}
 	});
 });
