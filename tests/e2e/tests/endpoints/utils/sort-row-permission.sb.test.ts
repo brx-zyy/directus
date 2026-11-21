@@ -23,7 +23,6 @@ const directus = await useSandbox(database, {
   env: { DB_FILENAME: `directus_test_sort_row_${getUID()}.db` },
   docker: { suffix: getUID() },
   knex: true,
-  knex: true,
 });
 const apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
 const admin = createDirectus<unknown>(apiUrl).with(rest()).with(staticToken('admin'));
@@ -47,13 +46,13 @@ test('sort cannot reorder rows outside the caller row-level update filter', asyn
   }));
   await admin.request(updatePolicy(policy.id, {
     permissions: [{
-      collection: 'articles', action: 'update', fields: ['sort'],
+      collection: collections.articles, action: 'update', fields: ['sort'],
       permissions: { title: { _eq: 'own-row' } },
     }],
   }));
 
   // Ordinary item update is denied for the victim row.
-  const ordinary = await fetch(`${apiUrl}/items/articles/${victim.id}`, {
+  const ordinary = await fetch(`${apiUrl}/items/${collections.articles}/${victim.id}`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ sort: 99 }),
@@ -62,7 +61,7 @@ test('sort cannot reorder rows outside the caller row-level update filter', asyn
 
   // Move the permitted row to the victim's position. The sort implementation's
   // range updates may also rewrite the victim row despite its row filter.
-  const sorted = await fetch(`${apiUrl}/utils/sort/articles`, {
+  const sorted = await fetch(`${apiUrl}/utils/sort/${collections.articles}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ item: own.id, to: victim.id }),
