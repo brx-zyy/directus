@@ -38,7 +38,7 @@ test('sort cannot reorder rows outside the caller row-level update filter', asyn
 
   const token = randomUUID();
   const user = await admin.request<{ id: string }>(createUser({
-    first_name: 'Sort', last_name: 'Tester', email: `${token}@sort.test`, password: 'password', token,
+    first_name: 'Sort', last_name: 'Tester', email: `${token}@example.com`, password: 'password', token,
   }));
   const policy = await admin.request<{ id: string }>(createPolicy({
     name: `sort-row-${randomUUID()}`, admin_access: false, app_access: false,
