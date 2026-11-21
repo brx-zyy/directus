@@ -302,6 +302,75 @@ describe('/files/tus', () => {
 		expect(file?.id).toBeDefined();
 	});
 
+	test('rechecks row-level update permission when a replacement TUS upload is resumed', async () => {
+		const token = randomUUID();
+		const user = await api.request<{ id: string }>(
+			createUser({ first_name: 'TUS', last_name: 'Revocation', email: `${token}@files.com`, password: 'password', token }),
+		);
+		const policy = await api.request<{ id: string }>(
+			createPolicy({
+				name: `tus-revocation-${randomUUID()}`,
+				admin_access: false,
+				app_access: false,
+				users: [{ user: user.id }],
+				permissions: [],
+			}),
+		);
+		const setPermissions = (updateFilter: Record<string, unknown> | null) =>
+			updatePolicy(policy.id, {
+				permissions: [
+					{ collection: 'directus_files', action: 'create', fields: ['*'] },
+					{ collection: 'directus_files', action: 'read', fields: ['*'] },
+					{
+						collection: 'directus_files',
+						action: 'update',
+						fields: ['*'],
+						...(updateFilter ? { permissions: updateFilter } : {}),
+					},
+				] as any,
+			});
+		await api.request(setPermissions(null));
+
+		const originalName = `${randomUUID()}.bin`;
+		await uploadViaTus(Buffer.from('original'), {
+			filename_download: originalName,
+			type: 'application/octet-stream',
+		}, { token });
+		const target = await findFileByDownloadName(originalName);
+		expect(target?.id).toBeDefined();
+
+		const encode = (value: string) => Buffer.from(value).toString('base64');
+		const start = await fetch(`${apiUrl}/files/tus`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Tus-Resumable': '1.0.0',
+				'Upload-Length': '6',
+				'Upload-Metadata': `filename_download ${encode('replacement.bin')},type ${encode('application/octet-stream')},id ${encode(target!.id)}`,
+			},
+		});
+		expect(start.status).toBe(201);
+		const uploadUrl = new URL(start.headers.get('location')!, apiUrl).toString();
+
+		// Revoke row-level access while retaining collection-level update permission.
+		await api.request(setPermissions({ id: { _eq: 'no-such-file-id' } }));
+
+		const patch = await fetch(uploadUrl, {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Tus-Resumable': '1.0.0',
+				'Upload-Offset': '0',
+				'Content-Type': 'application/offset+octet-stream',
+			},
+			body: Buffer.from('evil!!'),
+		});
+		expect(patch.status).toBe(403);
+
+		const downloaded = await api.request(readAssetArrayBuffer(target!.id));
+		expect(Buffer.from(downloaded).toString()).toBe('original');
+	});
+
 	test('enforces row-level update permission when replacing a file via tus', async () => {
 		const original = Buffer.from('original-bytes');
 		const targetName = `${randomUUID()}.bin`;
