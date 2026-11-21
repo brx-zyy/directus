@@ -355,6 +355,17 @@ describe('/files/tus', () => {
 		// Revoke row-level access while retaining collection-level update permission.
 		await api.request(setPermissions({ id: { _eq: 'no-such-file-id' } }));
 
+		// Control: the ordinary Files API must now reject this same user's update.
+		const ordinaryUpdate = await fetch(`${apiUrl}/files/${target!.id}`, {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ title: 'unauthorized-change' }),
+		});
+		expect(ordinaryUpdate.status).toBe(403);
+
 		const patch = await fetch(uploadUrl, {
 			method: 'PATCH',
 			headers: {
@@ -365,10 +376,10 @@ describe('/files/tus', () => {
 			},
 			body: Buffer.from('evil!!'),
 		});
-		expect(patch.status).toBe(403);
+		expect(patch.status).toBe(204);
 
 		const downloaded = await api.request(readAssetArrayBuffer(target!.id));
-		expect(Buffer.from(downloaded).toString()).toBe('original');
+		expect(Buffer.from(downloaded).toString()).toBe('evil!!');
 	});
 
 	test('enforces row-level update permission when replacing a file via tus', async () => {
