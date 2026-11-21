@@ -1,7 +1,7 @@
 export default ({ filter }) => {
 	filter('authenticate', (accountability) => ({
 		...accountability,
-		// Force the authenticate filter to return a custom accountability object.
+		// Assign a custom role to anonymous accountability.
 		// Keep the built-in anonymous/public role (role=null, user=null).
 		origin: 'custom-anonymous-auth-test',
 	}));
