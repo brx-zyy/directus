@@ -1,0 +1,29 @@
+name: Role downgrade session revocation test
+
+on:
+  push:
+    branches:
+      - security-audit/tus-authz-test
+    paths:
+      - "api/src/services/users.ts"
+      - "api/src/services/roles.ts"
+      - "api/src/permissions/**"
+      - "tests/e2e/tests/auth/role-revocation.sb.test.ts"
+      - ".github/workflows/role-revocation-test.yml"
+  workflow_dispatch:
+
+jobs:
+  role-revocation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare monorepo
+        uses: ./.github/actions/prepare-monorepo
+
+      - name: Run role downgrade session test
+        run: >
+          pnpm --filter e2e exec vitest run --project sqlite-sb
+          tests/auth/role-revocation.sb.test.ts
+        working-directory: tests/e2e
