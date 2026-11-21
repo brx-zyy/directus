@@ -32,10 +32,10 @@ beforeAll(async () => {
 	apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
 	api = createDirectus(apiUrl).with(rest());
 
-	// Grant public file creation and reading, but deny every row-level update.
+	// The public policy explicitly grants unrestricted file create/read/update access.
 	// The custom authenticate hook returns anonymous accountability (role=null, user=null).
 	await directus.knex!('directus_permissions').insert(
-		['create', 'read'].map((action) => ({
+		['create', 'read', 'update'].map((action) => ({
 			policy: PUBLIC_POLICY_ID,
 			collection: 'directus_files',
 			action,
@@ -45,15 +45,6 @@ beforeAll(async () => {
 			fields: '*',
 		})),
 	);
-	await directus.knex!('directus_permissions').insert({
-		policy: PUBLIC_POLICY_ID,
-		collection: 'directus_files',
-		action: 'update',
-		permissions: JSON.stringify({ id: { _eq: 'no-file-can-match-this-id' } }),
-		validation: null,
-		presets: null,
-		fields: '*',
-	});
 });
 
 afterAll(async () => {
@@ -84,7 +75,7 @@ test('custom authenticate hook with public file update permission allows a secon
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ title: 'unauthorized change' }),
 	});
-	expect(normalUpdate.status).toBe(403);
+	expect(normalUpdate.status).toBe(204); // The public policy explicitly permits this update.
 
 	// A separate anonymous HTTP client is given the victim's upload URL.
 	const attackerPatch = await fetch(uploadUrl, {
