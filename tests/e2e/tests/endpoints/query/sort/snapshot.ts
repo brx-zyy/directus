@@ -4,6 +4,7 @@ export const schema = new SchemaBuilder()
 	.collection('articles', (c) => {
 		c.field('id').id();
 		c.field('title').string();
+		c.field('sort').integer();
 		c.field('author').m2o('users');
 		c.field('tags').m2m('tags');
 		c.field('links').o2m('links', 'article_id');
@@ -32,4 +33,13 @@ export const schema = new SchemaBuilder()
 		c.field('link').string();
 	});
 
-export const snapshot = schema.snapshot();
+const builtSnapshot = schema.snapshot();
+
+export const snapshot = {
+	...builtSnapshot,
+	collections: builtSnapshot.collections.map((collection) =>
+		collection.collection === 'articles'
+			? { ...collection, meta: { ...collection.meta, sort_field: 'sort' } }
+			: collection,
+	),
+};
