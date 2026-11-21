@@ -11,6 +11,9 @@ on:
       - "tests/e2e/tests/endpoints/files/files.sb.test.ts"
       - "tests/e2e/tests/endpoints/files/tus-custom-auth.sb.test.ts"
       - "tests/e2e/tests/auth/role-revocation.sb.test.ts"
+      - "tests/e2e/tests/endpoints/utils-sort-permissions.sb.test.ts"
+      - "tests/e2e/tests/endpoints/query/sort/snapshot.ts"
+      - "api/src/services/utils.ts"
       - "tests/e2e/tests/endpoints/files/hooks/custom-anonymous-auth/**"
       - ".github/workflows/tus-authz-test.yml"
       - "package.json"
@@ -55,6 +58,12 @@ jobs:
         run: >
           pnpm --filter e2e exec vitest run --project sqlite-sb
           tests/auth/role-revocation.sb.test.ts
+        working-directory: tests/e2e
+
+      - name: Run sort row-level authorization integration test
+        run: >
+          pnpm --filter e2e exec vitest run --project sqlite-sb
+          tests/endpoints/utils-sort-permissions.sb.test.ts
         working-directory: tests/e2e
       - name: Run custom-auth anonymous TUS integration test
         run: >
