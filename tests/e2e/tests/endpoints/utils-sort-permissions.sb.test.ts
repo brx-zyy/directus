@@ -10,7 +10,7 @@ import { snapshot } from '../query/sort/snapshot.js';
 
 let directus: Awaited<ReturnType<typeof import('@directus/sandbox').sandbox>>;
 let apiUrl: string;
-let api: ReturnType<typeof createDirectus<any>> extends infer T ? any : never;
+let api: any;
 let collections: any;
 
 beforeAll(async () => {
@@ -26,7 +26,8 @@ beforeAll(async () => {
 
 	apiUrl = `http://127.0.0.1:${directus.apis[0].port}`;
 	api = createDirectus<any>(apiUrl).with(rest()).with(staticToken('admin'));
-	({ collections } = await useSnapshot<any>(api, snapshot));
+	const applied = await useSnapshot<any>(api, snapshot);
+	collections = applied.collections;
 }, 120_000);
 
 afterAll(async () => {
@@ -41,7 +42,7 @@ test('utils sort bypasses row-level update filters', async () => {
 	const attacker = await api.request(createItem(collections.articles, { title: attackerTitle, sort: 20 }));
 	const victim = await api.request(createItem(collections.articles, { title: victimTitle, sort: 10 }));
 
-	const { token } = await generateScopedUser(api, snapshot, ['read', 'update'], (permission) => ({
+	const { token } = await generateScopedUser(api, applied.snapshot, ['read', 'update'], (permission) => ({
 		...permission,
 		...(permission.collection === 'articles'
 			? { permissions: { title: { _eq: attackerTitle } } }
