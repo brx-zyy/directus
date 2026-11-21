@@ -25,13 +25,13 @@ const directus = await useSandbox(database, {
 });
 const apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
 const admin = createDirectus<unknown>(apiUrl).with(rest()).with(staticToken('admin'));
-const { collections } = await useSnapshot<unknown>(admin, snapshot);
+const { collections } = await useSnapshot<{ articles: unknown }>(admin, snapshot);
 
 afterAll(async () => { await directus.stop(); });
 
 test('sort cannot reorder rows outside the caller row-level update filter', async () => {
   // Configure the collection's sortable field, then seed one restricted and one permitted row.
-  await directus.knex!('directus_collections').where({ collection: 'articles' }).update({ sort_field: 'sort' });
+  await directus.knex!('directus_collections').where({ collection: collections.articles }).update({ sort_field: 'sort' });
   const victim = await admin.request<{ id: number }>(createItem(collections.articles, { title: 'victim-row', sort: 1 }));
   const own = await admin.request<{ id: number }>(createItem(collections.articles, { title: 'own-row', sort: 2 }));
 
@@ -67,6 +67,6 @@ test('sort cannot reorder rows outside the caller row-level update filter', asyn
   });
   expect(sorted.status).toBe(200);
 
-  const victimAfter = await directus.knex!('articles').select('sort').where({ id: victim.id }).first();
+  const victimAfter = await directus.knex!(collections.articles).select('sort').where({ id: victim.id }).first();
   expect(victimAfter.sort).toBe(2);
 });
