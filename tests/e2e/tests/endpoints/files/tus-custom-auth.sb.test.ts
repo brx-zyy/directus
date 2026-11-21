@@ -32,11 +32,10 @@ beforeAll(async () => {
 	apiUrl = `http://127.0.0.1:${directus.apis[0]!.port}`;
 	api = createDirectus(apiUrl).with(rest());
 
-	// Grant the built-in public policy explicit file create/read/update access.
-	// The custom authenticate hook returns a modified anonymous accountability,
-	// preserving role=null and user=null, so every unauthenticated client shares it.
+	// Grant public file creation and reading, but deny every row-level update.
+	// The custom authenticate hook returns anonymous accountability (role=null, user=null).
 	await directus.knex!('directus_permissions').insert(
-		['create', 'read', 'update'].map((action) => ({
+		['create', 'read'].map((action) => ({
 			policy: PUBLIC_POLICY_ID,
 			collection: 'directus_files',
 			action,
@@ -46,6 +45,15 @@ beforeAll(async () => {
 			fields: '*',
 		})),
 	);
+	await directus.knex!('directus_permissions').insert({
+		policy: PUBLIC_POLICY_ID,
+		collection: 'directus_files',
+		action: 'update',
+		permissions: JSON.stringify({ id: { _eq: 'no-file-can-match-this-id' } }),
+		validation: null,
+		presets: null,
+		fields: '*',
+	});
 });
 
 afterAll(async () => {
