@@ -1,0 +1,42 @@
+name: TUS Authorization Audit
+
+on:
+  push:
+    branches:
+      - security-audit/tus-authz-test
+    paths:
+      - "api/src/controllers/tus.ts"
+      - "api/src/controllers/tus.test.ts"
+      - "api/src/services/tus/**"
+      - ".github/workflows/tus-authz-test.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tus-authz-audit
+  cancel-in-progress: true
+
+jobs:
+  focused-tests:
+    name: Focused TUS authorization and datastore tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare monorepo
+        uses: ./.github/actions/prepare
+
+      - name: Run TUS controller, datastore, and completion tests
+        run: >
+          pnpm --filter @directus/api exec vitest run
+          src/controllers/tus.test.ts
+          src/services/tus/data-store.test.ts
+          src/services/tus/server.test.ts
+        working-directory: api
