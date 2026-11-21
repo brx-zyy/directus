@@ -122,6 +122,12 @@ describe('role revocation', () => {
 		const afterOldSession = await fetch(`${apiUrl}/roles`, { headers: { Cookie: sessionCookie } });
 		expect(afterOldSession.status).toBe(200); // Existing session JWT retains admin_access until its session expires.
 
+		const roleCreatedAfterDowngrade = await post('/roles', { name: `After-downgrade-${randomUUID()}` });
+		const downgradeEvent = await ws.next(
+			(message) => message.type === 'subscription' && message.uid === 'role-events' && message.event === 'create',
+		);
+		expect(downgradeEvent.data.id).toBe(roleCreatedAfterDowngrade.id);
+
 		const newLogin = await request('/auth/login', {
 			method: 'POST',
 			body: JSON.stringify({ email, password: 'test-password' }),
