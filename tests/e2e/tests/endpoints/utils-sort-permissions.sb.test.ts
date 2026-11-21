@@ -12,6 +12,7 @@ let directus: Awaited<ReturnType<typeof import('@directus/sandbox').sandbox>>;
 let apiUrl: string;
 let api: any;
 let collections: any;
+let appliedSnapshot: any;
 
 beforeAll(async () => {
 	directus = await useSandbox(database, {
@@ -28,6 +29,7 @@ beforeAll(async () => {
 	api = createDirectus<any>(apiUrl).with(rest()).with(staticToken('admin'));
 	const applied = await useSnapshot<any>(api, snapshot);
 	collections = applied.collections;
+	appliedSnapshot = applied.snapshot;
 }, 120_000);
 
 afterAll(async () => {
@@ -42,7 +44,7 @@ test('utils sort bypasses row-level update filters', async () => {
 	const attacker = await api.request(createItem(collections.articles, { title: attackerTitle, sort: 20 }));
 	const victim = await api.request(createItem(collections.articles, { title: victimTitle, sort: 10 }));
 
-	const { token } = await generateScopedUser(api, applied.snapshot, ['read', 'update'], (permission) => ({
+	const { token } = await generateScopedUser(api, appliedSnapshot, ['read', 'update'], (permission) => ({
 		...permission,
 		...(permission.collection === 'articles'
 			? { permissions: { title: { _eq: attackerTitle } } }
