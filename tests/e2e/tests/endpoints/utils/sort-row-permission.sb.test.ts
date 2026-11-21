@@ -8,7 +8,6 @@ import { useSnapshot } from '@utils/use-snapshot.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, expect, test } from 'vitest';
 import { LICENSE_KEYS } from '../../license/__fixtures__/licenses.js';
-import { LICENSE_KEYS } from '../../license/__fixtures__/licenses.js';
 
 const schema = new SchemaBuilder()
   .collection('articles', (c) => {
@@ -23,7 +22,6 @@ const directus = await useSandbox(database, {
   inspect: false,
   prefix: 'sort-row-permission',
   env: { DB_FILENAME: `directus_test_sort_row_${getUID()}.db`, LICENSE_KEY: LICENSE_KEYS.UNLIMITED },
-  extras: { license: true },
   docker: { suffix: getUID() },
   knex: true,
   extras: { license: true },
