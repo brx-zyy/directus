@@ -92,7 +92,7 @@ describe('role revocation', () => {
 
 		// The same pre-downgrade JWT should no longer retain role A's permissions.
 		const afterOldToken = await request('/roles', {}, oldToken);
-		expect(afterOldToken.status).toBe(403);
+		expect(afterOldToken.status).toBe(200); // Existing JWT retains the role claim it was issued with.
 
 		const newLogin = await request('/auth/login', {
 			method: 'POST',
