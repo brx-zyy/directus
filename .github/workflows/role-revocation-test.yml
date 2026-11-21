@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Prepare monorepo
-        uses: ./.github/actions/prepare-monorepo
+        uses: ./.github/actions/prepare
 
       - name: Run role downgrade session test
         run: >
