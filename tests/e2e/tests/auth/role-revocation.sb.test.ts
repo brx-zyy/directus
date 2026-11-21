@@ -122,5 +122,15 @@ describe('role revocation', () => {
 		const newToken = (await newLogin.json() as { data: { access_token: string } }).data.access_token;
 		const afterNewToken = await request('/roles', {}, newToken);
 		expect(afterNewToken.status).toBe(403);
+
+		// Control: a status suspension does revoke the same stateful session.
+		const suspend = await request(`/users/${user.id}`, {
+			method: 'PATCH',
+			body: JSON.stringify({ status: 'suspended' }),
+		});
+		expect(suspend.status).toBe(200);
+
+		const afterSuspension = await fetch(`${apiUrl}/roles`, { headers: { Cookie: sessionCookie } });
+		expect(afterSuspension.status).toBe(401);
 	});
 });
