@@ -272,5 +272,66 @@ describe('MCP OAuth refresh/revocation PostgreSQL race', () => {
 				server.close((error) => (error ? reject(error) : resolve()));
 			});
 		}
+
+		// Negative control 1: revocation without a concurrent refresh invalidates the token.
+		const ordinaryToken = 'ordinary-refresh-token-negative-control';
+		const ordinaryHash = crypto.createHash('sha256').update(ordinaryToken).digest('hex');
+		await db('directus_oauth_tokens').insert({
+			id: 'grant-ordinary-revoke',
+			client: clientId,
+			user: userId,
+			session: ordinaryHash,
+			resource,
+			scope: 'mcp:access',
+			code_hash: 'd'.repeat(64),
+			expires_at: expires,
+			date_created: now,
+		});
+		await db('directus_sessions').insert({
+			token: ordinaryHash,
+			user: userId,
+			share: null,
+			expires,
+			ip: '127.0.0.1',
+			user_agent: 'integration-test',
+			oauth_client: clientId,
+		});
+		const ordinaryRefresh = await refresher.refreshToken(
+			{ client_id: clientId, grant_type: 'refresh_token', refresh_token: ordinaryToken, resource },
+			{ ip: '127.0.0.1', userAgent: 'integration-test' },
+		);
+		await refresher.revokeToken({ client_id: clientId, token: ordinaryRefresh.refresh_token! });
+		await expect(getAccountabilityForToken(ordinaryRefresh.access_token)).rejects.toThrow();
+
+		// Negative control 2: refresh completes before revocation begins.
+		const sequentialToken = 'sequential-refresh-token-negative-control';
+		const sequentialHash = crypto.createHash('sha256').update(sequentialToken).digest('hex');
+		await db('directus_oauth_tokens').insert({
+			id: 'grant-sequential-revoke',
+			client: clientId,
+			user: userId,
+			session: sequentialHash,
+			resource,
+			scope: 'mcp:access',
+			code_hash: 'e'.repeat(64),
+			expires_at: expires,
+			date_created: now,
+		});
+		await db('directus_sessions').insert({
+			token: sequentialHash,
+			user: userId,
+			share: null,
+			expires,
+			ip: '127.0.0.1',
+			user_agent: 'integration-test',
+			oauth_client: clientId,
+		});
+		const sequentialRefresh = await refresher.refreshToken(
+			{ client_id: clientId, grant_type: 'refresh_token', refresh_token: sequentialToken, resource },
+			{ ip: '127.0.0.1', userAgent: 'integration-test' },
+		);
+		await refresher.revokeToken({ client_id: clientId, token: sequentialRefresh.refresh_token! });
+		await expect(getAccountabilityForToken(sequentialRefresh.access_token)).rejects.toThrow();
+
 	});
 });
