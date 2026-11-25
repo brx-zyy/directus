@@ -50,6 +50,39 @@ vi.mock('../activity.js', () => ({
 	},
 }));
 
+vi.mock('../../services/settings.js', () => ({
+	SettingsService: class {
+		readSingleton = vi.fn().mockResolvedValue({ mcp_enabled: true, mcp_oauth_enabled: true });
+	},
+}));
+
+vi.mock('../../utils/get-schema.js', () => ({
+	getSchema: vi.fn().mockResolvedValue({ collections: {}, relations: [] }),
+}));
+
+const { mcpOAuthPublicRouter } = await import('../../controllers/mcp/oauth.js');
+
+async function postRevokeRoute(body: Record<string, string>) {
+	const app = express();
+	app.use(mcpOAuthPublicRouter);
+	const server = app.listen(0);
+	await new Promise<void>((resolve) => server.once('listening', resolve));
+	const address = server.address();
+	if (!address || typeof address === 'string') throw new Error('Test HTTP server did not bind to a TCP port');
+
+	try {
+		return await fetch(`http://127.0.0.1:${address.port}/mcp-oauth/revoke`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams(body),
+		});
+	} finally {
+		await new Promise<void>((resolve, reject) => {
+			server.close((error) => (error ? reject(error) : resolve()));
+		});
+	}
+}
+
 function deferred() {
 	let resolve!: () => void;
 	const promise = new Promise<void>((done) => {
@@ -208,10 +241,12 @@ describe('MCP OAuth refresh/revocation PostgreSQL race', () => {
 			resumeRevoke.promise,
 		);
 
-		const revoker = new McpOAuthService({ knex: revokeKnex, schema: {} as any });
 		const refresher = new McpOAuthService({ knex: db, schema: {} as any });
 
-		const revokePromise = revoker.revokeToken({ client_id: clientId, token: oldRefreshToken });
+		// Route construction uses Directus' normal getDatabase() singleton. Point it at
+		// the pausing Knex proxy so this request exercises the actual public HTTP route.
+		shared.db = revokeKnex;
+		const revokePromise = postRevokeRoute({ client_id: clientId, token: oldRefreshToken });
 		await grantRead.promise;
 
 		const refreshed = await refresher.refreshToken(
@@ -225,7 +260,10 @@ describe('MCP OAuth refresh/revocation PostgreSQL race', () => {
 		);
 
 		resumeRevoke.resolve();
-		await revokePromise;
+		const revokeResponse = await revokePromise;
+		expect(revokeResponse.status).toBe(200);
+		expect(await revokeResponse.json()).toEqual({});
+		shared.db = db;
 
 		const newHash = crypto.createHash('sha256').update(refreshed.refresh_token!).digest('hex');
 		expect(await db('directus_oauth_tokens').where({ id: grantId }).first()).toBeUndefined();
