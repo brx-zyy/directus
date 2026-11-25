@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
-import { beforeAll, describe, expect, test } from 'vitest';
+import { beforeAll, describe, expect, inject, test } from 'vitest';
+import knex from 'knex';
 import {
 	approvePublicClientConsent,
 	adminToken,
@@ -368,85 +369,104 @@ describe('regular Directus tokens accessing /mcp', () => {
 });
 
 describe('concurrent refresh and revocation', () => {
-	test('records grant, session, and logout state for each racing attempt', async () => {
-		type OAuthGrantRow = { id: string; session: string; previous_session: string | null; client: string };
-		type OAuthSessionRow = { token: string; oauth_client: string | null; user: string };
-		type ActivityRow = { id: number; action: string; collection: string; item: string };
+	test.skipIf(process.env['DATABASE'] !== 'postgres')(
+		'records grant, session, and logout state directly from PostgreSQL for each racing attempt',
+		async () => {
+			type OAuthGrantRow = { id: string; session: string; previous_session: string | null; client: string };
+			type OAuthSessionRow = { token: string; oauth_client: string | null; user: string };
+			type ActivityRow = { id: string; action: string; collection: string; item: string };
 
-		const readItems = async <T,>(collection: string, params: Record<string, string>): Promise<T[]> => {
-			const url = new URL(`/items/${collection}`, baseUrl);
-			for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-
-			const response = await fetch(url, { headers: { Authorization: `Bearer ${adminToken}` } });
-			const body = (await expectJsonResponse(response, 200)) as { data?: T[] };
-			return body.data ?? [];
-		};
-
-		const results: Array<Record<string, unknown>> = [];
-
-		for (let attempt = 0; attempt < 15; attempt++) {
-			const { clientId, tokens } = await createOAuthTokens();
-			const oldHash = crypto.createHash('sha256').update(tokens.refresh_token).digest('hex');
-			const grantBefore = await readItems<OAuthGrantRow>('directus_oauth_tokens', {
-				'filter[session][_eq]': oldHash,
-				fields: 'id,session,previous_session,client',
+			const env = inject('envs').postgres;
+			const db = knex({
+				client: 'pg',
+				connection: {
+					host: env.DB_HOST,
+					port: Number(env.DB_PORT),
+					user: env.DB_USER,
+					password: env.DB_PASSWORD,
+					database: env.DB_DATABASE,
+				},
+				pool: { min: 0, max: 2 },
 			});
 
-			expect(grantBefore).toHaveLength(1);
-			const grantId = grantBefore[0]!.id;
+			const results: Array<Record<string, unknown>> = [];
 
-			const [refreshResponse, revokeResponse] = await Promise.all([
-				refreshToken({ clientId, refreshToken: tokens.refresh_token }),
-				revokeToken({ clientId, token: tokens.refresh_token }),
-			]);
+			try {
+				await db.raw('select 1');
 
-			await expectJsonResponse(revokeResponse, 200);
+				for (let attempt = 0; attempt < 15; attempt++) {
+					const { clientId, tokens } = await createOAuthTokens();
+					const oldHash = crypto.createHash('sha256').update(tokens.refresh_token).digest('hex');
 
-			let rotatedHash: string | null = null;
-			let mcpStatus: number | null = null;
+					const grantBefore = (await db('directus_oauth_tokens')
+						.select('id', 'session', 'previous_session', 'client')
+						.where({ session: oldHash })) as OAuthGrantRow[];
 
-			if (refreshResponse.status === 200) {
-				const refreshedTokens = (await expectJsonResponse(refreshResponse, 200)) as typeof tokens;
-				rotatedHash = crypto.createHash('sha256').update(refreshedTokens.refresh_token).digest('hex');
-				mcpStatus = (await postMcpToolsList(refreshedTokens.access_token)).status;
-			} else {
-				expect(refreshResponse.status).toBe(400);
+					expect(grantBefore).toHaveLength(1);
+					const grantId = grantBefore[0]!.id;
+
+					const [refreshResponse, revokeResponse] = await Promise.all([
+						refreshToken({ clientId, refreshToken: tokens.refresh_token }),
+						revokeToken({ clientId, token: tokens.refresh_token }),
+					]);
+
+					await expectJsonResponse(revokeResponse, 200);
+
+					let rotatedHash: string | null = null;
+					let mcpStatus: number | null = null;
+
+					if (refreshResponse.status === 200) {
+						const refreshedTokens = (await expectJsonResponse(refreshResponse, 200)) as typeof tokens;
+						rotatedHash = crypto.createHash('sha256').update(refreshedTokens.refresh_token).digest('hex');
+						mcpStatus = (await postMcpToolsList(refreshedTokens.access_token)).status;
+					} else {
+						expect(refreshResponse.status).toBe(400);
+					}
+
+					const hashes = [oldHash, rotatedHash].filter((value): value is string => value !== null);
+					const [grantsAfter, sessionsAfter, logoutActivities] = await Promise.all([
+						db('directus_oauth_tokens')
+							.select('id', 'session', 'previous_session', 'client')
+							.where({ id: grantId }) as Promise<OAuthGrantRow[]>,
+						db('directus_sessions')
+							.select('token', 'oauth_client', 'user')
+							.whereIn('token', hashes) as Promise<OAuthSessionRow[]>,
+						db('directus_activity')
+							.select('id', 'action', 'collection', 'item')
+							.where({
+								collection: 'directus_oauth_tokens',
+								item: grantId,
+								action: 'logout',
+							}) as Promise<ActivityRow[]>,
+					]);
+
+					const state = {
+						attempt: attempt + 1,
+						grantId,
+						refreshStatus: refreshResponse.status,
+						revokeStatus: revokeResponse.status,
+						grantPresent: grantsAfter.length > 0,
+						grantSessionHash: grantsAfter[0]?.session ?? null,
+						oldSessionPresent: sessionsAfter.some((row) => row.token === oldHash),
+						rotatedSessionPresent: rotatedHash
+							? sessionsAfter.some((row) => row.token === rotatedHash)
+							: null,
+						sessionRows: sessionsAfter.length,
+						logoutActivityCount: logoutActivities.length,
+						mcpStatus,
+					};
+
+					results.push(state);
+					console.info('[MCP OAuth PostgreSQL state]', JSON.stringify(state));
+				}
+			} finally {
+				await db.destroy();
 			}
 
-			const hashes = [oldHash, rotatedHash].filter((value): value is string => value !== null);
-			const [grantsAfter, sessionsAfter, logoutActivities] = await Promise.all([
-				readItems<OAuthGrantRow>('directus_oauth_tokens', {
-					'filter[id][_eq]': grantId,
-					fields: 'id,session,previous_session,client',
-				}),
-				readItems<OAuthSessionRow>('directus_sessions', {
-					'filter[token][_in]': hashes.join(','),
-					fields: 'token,oauth_client,user',
-				}),
-				readItems<ActivityRow>('directus_activity', {
-					'filter[collection][_eq]': 'directus_oauth_tokens',
-					'filter[item][_eq]': grantId,
-					'filter[action][_eq]': 'logout',
-					fields: 'id,action,collection,item',
-				}),
-			]);
-
-			results.push({
-				attempt: attempt + 1,
-				refreshStatus: refreshResponse.status,
-				revokeStatus: revokeResponse.status,
-				grantPresent: grantsAfter.length > 0,
-				grantSessionHash: grantsAfter[0]?.session ?? null,
-				oldSessionPresent: sessionsAfter.some((row) => row.token === oldHash),
-				rotatedSessionPresent: rotatedHash ? sessionsAfter.some((row) => row.token === rotatedHash) : null,
-				sessionRows: sessionsAfter.length,
-				logoutActivityCount: logoutActivities.length,
-				mcpStatus,
-			});
-		}
-
-		console.info('[MCP OAuth refresh/revocation state per attempt]', JSON.stringify(results));
-	}, 90_000);
+			console.info('[MCP OAuth PostgreSQL summary]', JSON.stringify(results));
+		},
+		90_000,
+	);
 });
 
 describe('concurrent refresh', () => {
