@@ -370,6 +370,100 @@ describe('regular Directus tokens accessing /mcp', () => {
 
 describe('concurrent refresh and revocation', () => {
 	test.skipIf(process.env['DATABASE'] !== 'postgres')(
+		'deterministically reproduces refresh completing after revoke reads the old grant',
+		async () => {
+			const env = inject('envs').postgres;
+			const db = knex({
+				client: 'pg',
+				connection: {
+					host: env.DB_HOST,
+					port: Number(env.DB_PORT),
+					user: env.DB_USER,
+					password: env.DB_PASSWORD,
+					database: env.DB_DATABASE,
+				},
+				pool: { min: 0, max: 3 },
+			});
+			const lockConnection = await db.transaction();
+			let lockReleased = false;
+
+			try {
+				const { clientId, tokens } = await createOAuthTokens();
+				const oldHash = crypto.createHash('sha256').update(tokens.refresh_token).digest('hex');
+				const grantBefore = await db('directus_oauth_tokens')
+					.select('id', 'session', 'client')
+					.where({ session: oldHash });
+				expect(grantBefore).toHaveLength(1);
+				const grantId = grantBefore[0]!.id as string;
+
+				// Hold a session-level advisory lock. The real revoke HTTP request reads the
+				// old grant, enters its transaction, and blocks at the gated xact-level lock.
+				await lockConnection.raw('SELECT pg_advisory_lock(?)', [20261126]);
+				const revokePromise = revokeToken({ clientId, token: tokens.refresh_token });
+
+				// Wait until PostgreSQL confirms the real Directus revoke transaction is
+				// blocked after its grant lookup; do not rely on sleeps or request races.
+				const deadline = Date.now() + 20_000;
+				let revokeIsAtBarrier = false;
+				while (Date.now() < deadline) {
+					const waiting = await db.raw(
+						`SELECT pid FROM pg_stat_activity
+						 WHERE datname = current_database()
+						   AND wait_event_type = 'Lock'
+						   AND wait_event = 'advisory'
+						   AND query ILIKE '%pg_advisory_xact_lock%'`,
+					);
+					if (waiting.rows.length > 0) {
+						revokeIsAtBarrier = true;
+						break;
+					}
+					await new Promise((resolve) => setTimeout(resolve, 50));
+				}
+				expect(revokeIsAtBarrier, 'the real revoke request must reach the PostgreSQL barrier').toBe(true);
+
+				// Refresh through the real HTTP token endpoint while revoke is paused.
+				const refreshResponse = await refreshToken({ clientId, refreshToken: tokens.refresh_token });
+				const refreshedTokens = (await expectJsonResponse(refreshResponse, 200)) as typeof tokens;
+				const rotatedHash = crypto.createHash('sha256').update(refreshedTokens.refresh_token).digest('hex');
+
+				// Let the already-running revoke transaction continue after refresh committed.
+				await lockConnection.raw('SELECT pg_advisory_unlock(?)', [20261126]);
+				lockReleased = true;
+				const revokeResponse = await revokePromise;
+				await expectJsonResponse(revokeResponse, 200);
+
+				const [grantsAfter, oldSessions, rotatedSessions, logoutActivities] = await Promise.all([
+					db('directus_oauth_tokens').where({ id: grantId }).select('id', 'session'),
+					db('directus_sessions').where({ token: oldHash }).select('token'),
+					db('directus_sessions').where({ token: rotatedHash }).select('token', 'oauth_client', 'user'),
+					db('directus_activity').where({
+						collection: 'directus_oauth_tokens',
+						item: grantId,
+						action: 'logout',
+					}).select('id', 'action', 'collection', 'item'),
+				]);
+				const mcpResponse = await postMcpToolsList(refreshedTokens.access_token);
+				const state = {
+					grantPresent: grantsAfter.length > 0,
+					oldSessionPresent: oldSessions.length > 0,
+					rotatedSessionPresent: rotatedSessions.length > 0,
+					logoutActivityCount: logoutActivities.length,
+					mcpStatus: mcpResponse.status,
+				};
+				console.info('[MCP OAuth deterministic full-server race]', JSON.stringify(state));
+
+				expect(state).toEqual({
+					grantPresent: false,
+					oldSessionPresent: false,
+					rotatedSessionPresent: true,
+					logoutActivityCount: 1,
+					mcpStatus: 200,
+				});
+			},
+			60_000,
+		);
+
+	test.skipIf(process.env['DATABASE'] !== 'postgres')(
 		'records grant, session, and logout state directly from PostgreSQL for each racing attempt',
 		async () => {
 			type OAuthGrantRow = { id: string; session: string; previous_session: string | null; client: string };
