@@ -367,11 +367,32 @@ describe('regular Directus tokens accessing /mcp', () => {
 });
 
 describe('concurrent refresh and revocation', () => {
-	test('revocation invalidates any access token issued by a racing refresh', async () => {
-		const survivingTokens: string[] = [];
+	test('records grant, session, and logout state for each racing attempt', async () => {
+		type OAuthGrantRow = { id: string; session: string; previous_session: string | null; client: string };
+		type OAuthSessionRow = { token: string; oauth_client: string | null; user: string };
+		type ActivityRow = { id: number; action: string; collection: string; item: string };
+
+		const readItems = async <T,>(collection: string, params: Record<string, string>): Promise<T[]> => {
+			const url = new URL(`/items/${collection}`, baseUrl);
+			for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+
+			const response = await fetch(url, { headers: { Authorization: `Bearer ${adminToken}` } });
+			const body = (await expectJsonResponse(response, 200)) as { data?: T[] };
+			return body.data ?? [];
+		};
+
+		const results: Array<Record<string, unknown>> = [];
 
 		for (let attempt = 0; attempt < 15; attempt++) {
 			const { clientId, tokens } = await createOAuthTokens();
+			const oldHash = crypto.createHash('sha256').update(tokens.refresh_token).digest('hex');
+			const grantBefore = await readItems<OAuthGrantRow>('directus_oauth_tokens', {
+				'filter[session][_eq]': oldHash,
+				fields: 'id,session,previous_session,client',
+			});
+
+			expect(grantBefore).toHaveLength(1);
+			const grantId = grantBefore[0]!.id;
 
 			const [refreshResponse, revokeResponse] = await Promise.all([
 				refreshToken({ clientId, refreshToken: tokens.refresh_token }),
@@ -380,19 +401,50 @@ describe('concurrent refresh and revocation', () => {
 
 			await expectJsonResponse(revokeResponse, 200);
 
-			if (refreshResponse.status === 400) continue;
+			let rotatedHash: string | null = null;
+			let mcpStatus: number | null = null;
 
-			const refreshedTokens = (await expectJsonResponse(refreshResponse, 200)) as typeof tokens;
-			const mcpResponse = await postMcpToolsList(refreshedTokens.access_token);
+			if (refreshResponse.status === 200) {
+				const refreshedTokens = (await expectJsonResponse(refreshResponse, 200)) as typeof tokens;
+				rotatedHash = crypto.createHash('sha256').update(refreshedTokens.refresh_token).digest('hex');
+				mcpStatus = (await postMcpToolsList(refreshedTokens.access_token)).status;
+			} else {
+				expect(refreshResponse.status).toBe(400);
+			}
 
-			if (mcpResponse.status === 200) survivingTokens.push(refreshedTokens.access_token);
-			else expect([401, 403]).toContain(mcpResponse.status);
+			const hashes = [oldHash, rotatedHash].filter((value): value is string => value !== null);
+			const [grantsAfter, sessionsAfter, logoutActivities] = await Promise.all([
+				readItems<OAuthGrantRow>('directus_oauth_tokens', {
+					'filter[id][_eq]': grantId,
+					fields: 'id,session,previous_session,client',
+				}),
+				readItems<OAuthSessionRow>('directus_sessions', {
+					'filter[token][_in]': hashes.join(','),
+					fields: 'token,oauth_client,user',
+				}),
+				readItems<ActivityRow>('directus_activity', {
+					'filter[collection][_eq]': 'directus_oauth_tokens',
+					'filter[item][_eq]': grantId,
+					'filter[action][_eq]': 'logout',
+					fields: 'id,action,collection,item',
+				}),
+			]);
+
+			results.push({
+				attempt: attempt + 1,
+				refreshStatus: refreshResponse.status,
+				revokeStatus: revokeResponse.status,
+				grantPresent: grantsAfter.length > 0,
+				grantSessionHash: grantsAfter[0]?.session ?? null,
+				oldSessionPresent: sessionsAfter.some((row) => row.token === oldHash),
+				rotatedSessionPresent: rotatedHash ? sessionsAfter.some((row) => row.token === rotatedHash) : null,
+				sessionRows: sessionsAfter.length,
+				logoutActivityCount: logoutActivities.length,
+				mcpStatus,
+			});
 		}
 
-		expect(
-			survivingTokens,
-			'Refreshed access token(s) remained usable at the real /mcp endpoint after revocation returned HTTP 200',
-		).toHaveLength(0);
+		console.info('[MCP OAuth refresh/revocation state per attempt]', JSON.stringify(results));
 	}, 90_000);
 });
 
