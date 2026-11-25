@@ -43,7 +43,9 @@ vi.mock('../../permissions/modules/fetch-global-access/fetch-global-access.js', 
 }));
 
 vi.mock('../activity.js', () => ({
-	ActivityService: vi.fn().mockImplementation(() => ({ createOne: vi.fn().mockResolvedValue('activity-1') })),
+	ActivityService: class {
+		createOne = vi.fn().mockResolvedValue('activity-1');
+	},
 }));
 
 function deferred() {
