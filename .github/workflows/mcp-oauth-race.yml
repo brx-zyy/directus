@@ -45,3 +45,5 @@ jobs:
 
       - name: Run PostgreSQL-backed OAuth race test
         run: pnpm --filter @directus/api exec vitest run src/services/mcp-oauth/revocation-race.integration.test.ts
+
+# Re-trigger PostgreSQL race test after Actions was re-enabled.
