@@ -18,6 +18,7 @@ vi.mock('../../database/index.js', () => ({
 vi.mock('@directus/env', () => ({
 	useEnv: () => ({
 		PUBLIC_URL: 'http://localhost:8055',
+		EMAIL_TEMPLATES_PATH: '/tmp/directus-email-templates',
 		ACCESS_TOKEN_TTL: 900_000,
 		REFRESH_TOKEN_TTL: 604_800_000,
 		MCP_OAUTH_REQUIRE_RESOURCE: false,
