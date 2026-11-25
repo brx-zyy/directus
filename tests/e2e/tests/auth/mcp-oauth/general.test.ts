@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { beforeAll, describe, expect, test } from 'vitest';
 import {
 	approvePublicClientConsent,
+	adminToken,
 	authorizePublicClient,
 	baseUrl,
 	createOAuthTokens,
