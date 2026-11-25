@@ -20,6 +20,7 @@ vi.mock('@directus/env', () => ({
 		PUBLIC_URL: 'http://localhost:8055',
 		EMAIL_TEMPLATES_PATH: '/tmp/directus-email-templates',
 		AUTH_PROVIDERS: [],
+		WEBSOCKETS_COLLAB_PERMISSIONS_CACHE_CAPACITY: 100,
 		ACCESS_TOKEN_TTL: 900_000,
 		REFRESH_TOKEN_TTL: 604_800_000,
 		MCP_OAUTH_REQUIRE_RESOURCE: false,
