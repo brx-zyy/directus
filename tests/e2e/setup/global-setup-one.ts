@@ -22,7 +22,7 @@ export async function setup(project: TestProject) {
 		prefix: database,
 		env: {
 			CACHE_SCHEMA: 'false',
-			LICENSE_KEY: 'D0000-00000-00000-0000K',
+			LICENSE_KEY: 'D0000-00000-00000-00000K',
 			...(database === 'postgres' ? { MCP_OAUTH_TEST_REVOKE_BARRIER: 'enabled' } : {}),
 		},
 		docker: {
