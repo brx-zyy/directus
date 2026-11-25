@@ -1,0 +1,41 @@
+name: MCP OAuth PostgreSQL race test
+
+on:
+  pull_request:
+    paths:
+      - 'api/src/services/mcp-oauth/revocation-race.integration.test.ts'
+      - '.github/workflows/mcp-oauth-race.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-oauth-race:
+    name: MCP OAuth refresh/revocation race (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: directus
+          POSTGRES_PASSWORD: directus
+          POSTGRES_DB: directus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U directus -d directus_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://directus:directus@localhost:5432/directus_test
+      NODE_OPTIONS: --max_old_space_size=6144
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies and build workspace packages
+        uses: ./.github/actions/prepare
+
+      - name: Run PostgreSQL-backed OAuth race test
+        run: pnpm --filter @directus/api exec vitest run src/services/mcp-oauth/revocation-race.integration.test.ts
