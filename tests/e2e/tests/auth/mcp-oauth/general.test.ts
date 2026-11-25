@@ -427,17 +427,17 @@ describe('concurrent refresh and revocation', () => {
 					const [grantsAfter, sessionsAfter, logoutActivities] = await Promise.all([
 						db('directus_oauth_tokens')
 							.select('id', 'session', 'previous_session', 'client')
-							.where({ id: grantId }) as Promise<OAuthGrantRow[]>,
+							.where({ id: grantId }),
 						db('directus_sessions')
 							.select('token', 'oauth_client', 'user')
-							.whereIn('token', hashes) as Promise<OAuthSessionRow[]>,
+							.whereIn('token', hashes),
 						db('directus_activity')
 							.select('id', 'action', 'collection', 'item')
 							.where({
 								collection: 'directus_oauth_tokens',
 								item: grantId,
 								action: 'logout',
-							}) as Promise<ActivityRow[]>,
+							}),
 					]);
 
 					const state = {
@@ -463,7 +463,15 @@ describe('concurrent refresh and revocation', () => {
 				await db.destroy();
 			}
 
-			console.info('[MCP OAuth PostgreSQL summary]', JSON.stringify(results));
+			const confirmedRace = results.some(
+				(result) =>
+					result['grantPresent'] === false &&
+					result['rotatedSessionPresent'] === true &&
+					result['mcpStatus'] === 200,
+			);
+
+			console.info('[MCP OAuth PostgreSQL summary]', JSON.stringify({ confirmedRace, results }));
+			expect(confirmedRace, 'expected a revoked grant with a surviving rotated session accepted by /mcp').toBe(true);
 		},
 		90_000,
 	);
