@@ -6,10 +6,12 @@ on:
       - security-test/mcp-oauth-revoke-refresh-race
     paths:
       - 'api/src/services/mcp-oauth/revocation-race.integration.test.ts'
+      - 'tests/e2e/tests/auth/mcp-oauth/general.test.ts'
       - '.github/workflows/mcp-oauth-race.yml'
   pull_request:
     paths:
       - 'api/src/services/mcp-oauth/revocation-race.integration.test.ts'
+      - 'tests/e2e/tests/auth/mcp-oauth/general.test.ts'
       - '.github/workflows/mcp-oauth-race.yml'
 
 permissions:
@@ -39,11 +41,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
       - name: Install dependencies and build workspace packages
         uses: ./.github/actions/prepare
-
       - name: Run PostgreSQL-backed OAuth race test
         run: pnpm --filter @directus/api exec vitest run src/services/mcp-oauth/revocation-race.integration.test.ts
 
-# Re-trigger PostgreSQL race test after Actions was re-enabled.
+  full-server-e2e:
+    name: Full Directus E2E suite
+    uses: ./.github/workflows/e2e.yml
