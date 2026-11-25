@@ -145,6 +145,9 @@ const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 /** Client secret byte length for confidential clients (32 bytes = 256 bits) */
 const CLIENT_SECRET_BYTES = 32;
 
+// Reserved for deterministic PostgreSQL E2E orchestration; enabled only by the test sandbox.
+const MCP_OAUTH_TEST_REVOKE_BARRIER_LOCK = 20261126;
+
 /** Params checked for duplicates before redirect_uri validation (non-redirectable errors) */
 const PRE_TRUST_DUPLICATE_PARAMS = ['client_id', 'redirect_uri'] as const;
 
@@ -1338,6 +1341,13 @@ export class McpOAuthService {
 
 		// 5. Delete grant + session atomically
 		await transaction(this.knex, async (trx) => {
+			// The PostgreSQL E2E harness sets this flag and holds the matching session advisory lock.
+			// This test-only barrier makes the stale-read interleaving reproducible without changing
+			// normal runtime behavior or exposing a network control endpoint.
+			if (process.env['MCP_OAUTH_TEST_REVOKE_BARRIER'] === 'enabled') {
+				await trx.raw('SELECT pg_advisory_xact_lock(?)', [MCP_OAUTH_TEST_REVOKE_BARRIER_LOCK]);
+			}
+
 			await trx('directus_oauth_tokens').where('id', grantId).delete();
 			await trx('directus_sessions').where('token', tokenHash).delete();
 		});
