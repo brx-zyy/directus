@@ -1,0 +1,65 @@
+name: MCP OAuth PostgreSQL race test
+
+on:
+  push:
+    branches:
+      - security-test/mcp-oauth-revoke-refresh-race
+    paths:
+      - 'api/src/services/mcp-oauth/revocation-race.integration.test.ts'
+      - 'api/src/services/mcp-oauth/index.ts'
+      - 'tests/e2e/setup/global-setup-one.ts'
+      - 'tests/e2e/tests/auth/mcp-oauth/general.test.ts'
+      - '.github/workflows/mcp-oauth-race.yml'
+  pull_request:
+    paths:
+      - 'api/src/services/mcp-oauth/revocation-race.integration.test.ts'
+      - 'api/src/services/mcp-oauth/index.ts'
+      - 'tests/e2e/setup/global-setup-one.ts'
+      - 'tests/e2e/tests/auth/mcp-oauth/general.test.ts'
+      - '.github/workflows/mcp-oauth-race.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-oauth-race:
+    name: MCP OAuth refresh/revocation race (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: directus
+          POSTGRES_PASSWORD: directus
+          POSTGRES_DB: directus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U directus -d directus_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://directus:directus@localhost:5432/directus_test
+      NODE_OPTIONS: --max_old_space_size=6144
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install dependencies and build workspace packages
+        uses: ./.github/actions/prepare
+      - name: Run PostgreSQL-backed OAuth race test
+        run: pnpm --filter @directus/api exec vitest run src/services/mcp-oauth/revocation-race.integration.test.ts
+
+  full-server-e2e:
+    name: Full Directus E2E suite (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Prepare
+        uses: ./.github/actions/prepare
+      - name: Run focused MCP OAuth PostgreSQL full-server E2E tests
+        run: |
+          cd tests/e2e/
+          LOG_LEVEL=debug pnpm vitest --project postgres tests/auth/mcp-oauth/general.test.ts --no-file-parallelism

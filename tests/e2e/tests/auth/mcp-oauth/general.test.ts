@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
-import { beforeAll, describe, expect, test } from 'vitest';
+import { beforeAll, describe, expect, inject, test } from 'vitest';
+import knex from 'knex';
 import {
 	approvePublicClientConsent,
+	adminToken,
 	authorizePublicClient,
 	baseUrl,
 	createOAuthTokens,
@@ -364,6 +366,216 @@ describe('regular Directus tokens accessing /mcp', () => {
 
 		expect(response.status).toBe(200);
 	});
+});
+
+describe('concurrent refresh and revocation', () => {
+	test.skipIf(process.env['DATABASE'] !== 'postgres')(
+		'deterministically reproduces refresh completing after revoke reads the old grant',
+		async () => {
+			const env = inject('envs').postgres;
+			const db = knex({
+				client: 'pg',
+				connection: {
+					host: env.DB_HOST,
+					port: Number(env.DB_PORT),
+					user: env.DB_USER,
+					password: env.DB_PASSWORD,
+					database: env.DB_DATABASE,
+				},
+				pool: { min: 0, max: 3 },
+			});
+			const lockConnection = await db.transaction();
+			let lockReleased = false;
+
+			try {
+				const { clientId, tokens } = await createOAuthTokens();
+				const oldHash = crypto.createHash('sha256').update(tokens.refresh_token).digest('hex');
+				const grantBefore = await db('directus_oauth_tokens')
+					.select('id', 'session', 'client')
+					.where({ session: oldHash });
+				expect(grantBefore).toHaveLength(1);
+				const grantId = grantBefore[0]!.id as string;
+
+				// Hold a session-level advisory lock. The real revoke HTTP request reads the
+				// old grant, enters its transaction, and blocks at the gated xact-level lock.
+				await lockConnection.raw('SELECT pg_advisory_lock(?)', [20261126]);
+				const revokePromise = revokeToken({ clientId, token: tokens.refresh_token });
+
+				// Wait until PostgreSQL confirms the real Directus revoke transaction is
+				// blocked after its grant lookup; do not rely on sleeps or request races.
+				const deadline = Date.now() + 20_000;
+				let revokeIsAtBarrier = false;
+				while (Date.now() < deadline) {
+					const waiting = await db.raw(
+						`SELECT pid FROM pg_stat_activity
+						 WHERE datname = current_database()
+						   AND wait_event_type = 'Lock'
+						   AND wait_event = 'advisory'
+						   AND query ILIKE '%pg_advisory_xact_lock%'`,
+					);
+					if (waiting.rows.length > 0) {
+						revokeIsAtBarrier = true;
+						break;
+					}
+					await new Promise((resolve) => setTimeout(resolve, 50));
+				}
+				expect(revokeIsAtBarrier, 'the real revoke request must reach the PostgreSQL barrier').toBe(true);
+
+				// Refresh through the real HTTP token endpoint while revoke is paused.
+				const refreshResponse = await refreshToken({ clientId, refreshToken: tokens.refresh_token });
+				const refreshedTokens = (await expectJsonResponse(refreshResponse, 200)) as typeof tokens;
+				const rotatedHash = crypto.createHash('sha256').update(refreshedTokens.refresh_token).digest('hex');
+
+				// Let the already-running revoke transaction continue after refresh committed.
+				await lockConnection.raw('SELECT pg_advisory_unlock(?)', [20261126]);
+				lockReleased = true;
+				const revokeResponse = await revokePromise;
+				await expectJsonResponse(revokeResponse, 200);
+
+				const [grantsAfter, oldSessions, rotatedSessions, logoutActivities] = await Promise.all([
+					db('directus_oauth_tokens').where({ id: grantId }).select('id', 'session'),
+					db('directus_sessions').where({ token: oldHash }).select('token'),
+					db('directus_sessions').where({ token: rotatedHash }).select('token', 'oauth_client', 'user'),
+					db('directus_activity').where({
+						collection: 'directus_oauth_tokens',
+						item: grantId,
+						action: 'logout',
+					}).select('id', 'action', 'collection', 'item'),
+				]);
+				const mcpResponse = await postMcpToolsList(refreshedTokens.access_token);
+				const state = {
+					grantPresent: grantsAfter.length > 0,
+					oldSessionPresent: oldSessions.length > 0,
+					rotatedSessionPresent: rotatedSessions.length > 0,
+					logoutActivityCount: logoutActivities.length,
+					mcpStatus: mcpResponse.status,
+				};
+				console.info('[MCP OAuth deterministic full-server race]', JSON.stringify(state));
+
+				expect(state).toEqual({
+					grantPresent: false,
+					oldSessionPresent: false,
+					rotatedSessionPresent: true,
+					logoutActivityCount: 1,
+					mcpStatus: 200,
+				});
+			} finally {
+				if (!lockReleased) {
+					await lockConnection.raw('SELECT pg_advisory_unlock(?)', [20261126]).catch(() => undefined);
+				}
+				await lockConnection.rollback().catch(() => undefined);
+				await db.destroy();
+			}
+			},
+			60_000,
+		);
+
+	test.skipIf(process.env['DATABASE'] !== 'postgres')(
+		'records grant, session, and logout state directly from PostgreSQL for each racing attempt',
+		async () => {
+			type OAuthGrantRow = { id: string; session: string; previous_session: string | null; client: string };
+			type OAuthSessionRow = { token: string; oauth_client: string | null; user: string };
+			type ActivityRow = { id: string; action: string; collection: string; item: string };
+
+			const env = inject('envs').postgres;
+			const db = knex({
+				client: 'pg',
+				connection: {
+					host: env.DB_HOST,
+					port: Number(env.DB_PORT),
+					user: env.DB_USER,
+					password: env.DB_PASSWORD,
+					database: env.DB_DATABASE,
+				},
+				pool: { min: 0, max: 2 },
+			});
+
+			const results: Array<Record<string, unknown>> = [];
+
+			try {
+				await db.raw('select 1');
+
+				for (let attempt = 0; attempt < 15; attempt++) {
+					const { clientId, tokens } = await createOAuthTokens();
+					const oldHash = crypto.createHash('sha256').update(tokens.refresh_token).digest('hex');
+
+					const grantBefore = (await db('directus_oauth_tokens')
+						.select('id', 'session', 'previous_session', 'client')
+						.where({ session: oldHash })) as OAuthGrantRow[];
+
+					expect(grantBefore).toHaveLength(1);
+					const grantId = grantBefore[0]!.id;
+
+					const [refreshResponse, revokeResponse] = await Promise.all([
+						refreshToken({ clientId, refreshToken: tokens.refresh_token }),
+						revokeToken({ clientId, token: tokens.refresh_token }),
+					]);
+
+					await expectJsonResponse(revokeResponse, 200);
+
+					let rotatedHash: string | null = null;
+					let mcpStatus: number | null = null;
+
+					if (refreshResponse.status === 200) {
+						const refreshedTokens = (await expectJsonResponse(refreshResponse, 200)) as typeof tokens;
+						rotatedHash = crypto.createHash('sha256').update(refreshedTokens.refresh_token).digest('hex');
+						mcpStatus = (await postMcpToolsList(refreshedTokens.access_token)).status;
+					} else {
+						expect(refreshResponse.status).toBe(400);
+					}
+
+					const hashes = [oldHash, rotatedHash].filter((value): value is string => value !== null);
+					const [grantsAfter, sessionsAfter, logoutActivities] = await Promise.all([
+						db('directus_oauth_tokens')
+							.select('id', 'session', 'previous_session', 'client')
+							.where({ id: grantId }),
+						db('directus_sessions')
+							.select('token', 'oauth_client', 'user')
+							.whereIn('token', hashes),
+						db('directus_activity')
+							.select('id', 'action', 'collection', 'item')
+							.where({
+								collection: 'directus_oauth_tokens',
+								item: grantId,
+								action: 'logout',
+							}),
+					]);
+
+					const state = {
+						attempt: attempt + 1,
+						grantId,
+						refreshStatus: refreshResponse.status,
+						revokeStatus: revokeResponse.status,
+						grantPresent: grantsAfter.length > 0,
+						grantSessionHash: grantsAfter[0]?.session ?? null,
+						oldSessionPresent: sessionsAfter.some((row) => row.token === oldHash),
+						rotatedSessionPresent: rotatedHash
+							? sessionsAfter.some((row) => row.token === rotatedHash)
+							: null,
+						sessionRows: sessionsAfter.length,
+						logoutActivityCount: logoutActivities.length,
+						mcpStatus,
+					};
+
+					results.push(state);
+					console.info('[MCP OAuth PostgreSQL state]', JSON.stringify(state));
+				}
+			} finally {
+				await db.destroy();
+			}
+
+			const confirmedRace = results.some(
+				(result) =>
+					result['grantPresent'] === false &&
+					result['rotatedSessionPresent'] === true &&
+					result['mcpStatus'] === 200,
+			);
+
+			console.info('[MCP OAuth PostgreSQL summary]', JSON.stringify({ confirmedRace, results }));
+			expect(confirmedRace, 'expected a revoked grant with a surviving rotated session accepted by /mcp').toBe(true);
+		},
+		90_000,
+	);
 });
 
 describe('concurrent refresh', () => {
