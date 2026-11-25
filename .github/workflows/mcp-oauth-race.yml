@@ -1,6 +1,12 @@
 name: MCP OAuth PostgreSQL race test
 
 on:
+  push:
+    branches:
+      - security-test/mcp-oauth-revoke-refresh-race
+    paths:
+      - 'api/src/services/mcp-oauth/revocation-race.integration.test.ts'
+      - '.github/workflows/mcp-oauth-race.yml'
   pull_request:
     paths:
       - 'api/src/services/mcp-oauth/revocation-race.integration.test.ts'
