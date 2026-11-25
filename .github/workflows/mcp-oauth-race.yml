@@ -51,5 +51,15 @@ jobs:
         run: pnpm --filter @directus/api exec vitest run src/services/mcp-oauth/revocation-race.integration.test.ts
 
   full-server-e2e:
-    name: Full Directus E2E suite
-    uses: ./.github/workflows/e2e.yml
+    name: Full Directus E2E suite (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Prepare
+        uses: ./.github/actions/prepare
+      - name: Run full PostgreSQL E2E suite
+        run: |
+          cd tests/e2e/
+          LOG_LEVEL=debug pnpm vitest --project postgres --no-file-parallelism
