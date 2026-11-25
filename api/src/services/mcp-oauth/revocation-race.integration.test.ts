@@ -5,6 +5,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { McpOAuthService } from './index.js';
 import { getAccountabilityForToken } from '../../utils/get-accountability-for-token.js';
 import authenticate from '../../middleware/authenticate.js';
+import mcpRouter from '../../controllers/mcp/index.js';
+import mcpOAuthGuard from '../../middleware/mcp-oauth-guard.js';
+import extractToken from '../../middleware/extract-token.js';
 
 const shared = vi.hoisted(() => ({ db: undefined as unknown }));
 
@@ -58,6 +61,10 @@ vi.mock('../../services/settings.js', () => ({
 
 vi.mock('../../utils/get-schema.js', () => ({
 	getSchema: vi.fn().mockResolvedValue({ collections: {}, relations: [] }),
+}));
+
+vi.mock('../../license/manager.js', () => ({
+	getLicenseManager: () => ({ isLocked: vi.fn().mockResolvedValue(false) }),
 }));
 
 const { mcpOAuthPublicRouter } = await import('../../controllers/mcp/oauth.js');
@@ -308,6 +315,50 @@ describe('MCP OAuth refresh/revocation PostgreSQL race', () => {
 		} finally {
 			await new Promise<void>((resolve, reject) => {
 				server.close((error) => (error ? reject(error) : resolve()));
+			});
+		}
+
+		// Exercise the real MCP controller, OAuth guard, token extraction, and authentication
+		// middleware with the surviving bearer token. A tools/list request is read-only.
+		const mcpApp = express();
+		mcpApp.use(express.json());
+		mcpApp.use(extractToken);
+		mcpApp.use(authenticate);
+		mcpApp.use(mcpOAuthGuard);
+		mcpApp.use((req, _res, next) => {
+			(req as express.Request & { schema?: unknown }).schema = { collections: {}, relations: [] };
+			next();
+		});
+		mcpApp.use('/mcp', mcpRouter);
+		const mcpServer = mcpApp.listen(0);
+		await new Promise<void>((resolve) => mcpServer.once('listening', resolve));
+		const mcpAddress = mcpServer.address();
+		if (!mcpAddress || typeof mcpAddress === 'string') throw new Error('MCP test server did not bind to a TCP port');
+
+		try {
+			const mcpResponse = await fetch(`http://127.0.0.1:${mcpAddress.port}/mcp`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${refreshed.access_token}`,
+					'Content-Type': 'application/json',
+					Accept: 'application/json',
+				},
+				body: JSON.stringify({
+					jsonrpc: '2.0',
+					id: 1,
+					method: 'tools/list',
+					params: {},
+				}),
+			});
+			expect(mcpResponse.status).toBe(200);
+			const mcpBody = await mcpResponse.json();
+			expect(mcpBody.jsonrpc).toBe('2.0');
+			expect(mcpBody.id).toBe(1);
+			expect(mcpBody.result.tools).toBeInstanceOf(Array);
+			expect(mcpBody.result.tools.length).toBeGreaterThan(0);
+		} finally {
+			await new Promise<void>((resolve, reject) => {
+				mcpServer.close((error) => (error ? reject(error) : resolve()));
 			});
 		}
 
