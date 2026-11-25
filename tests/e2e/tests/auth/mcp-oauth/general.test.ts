@@ -366,6 +366,36 @@ describe('regular Directus tokens accessing /mcp', () => {
 	});
 });
 
+describe('concurrent refresh and revocation', () => {
+	test('revocation invalidates any access token issued by a racing refresh', async () => {
+		const survivingTokens: string[] = [];
+
+		for (let attempt = 0; attempt < 15; attempt++) {
+			const { clientId, tokens } = await createOAuthTokens();
+
+			const [refreshResponse, revokeResponse] = await Promise.all([
+				refreshToken({ clientId, refreshToken: tokens.refresh_token }),
+				revokeToken({ clientId, token: tokens.refresh_token }),
+			]);
+
+			await expectJsonResponse(revokeResponse, 200);
+
+			if (refreshResponse.status === 400) continue;
+
+			const refreshedTokens = (await expectJsonResponse(refreshResponse, 200)) as typeof tokens;
+			const mcpResponse = await postMcpToolsList(refreshedTokens.access_token);
+
+			if (mcpResponse.status === 200) survivingTokens.push(refreshedTokens.access_token);
+			else expect([401, 403]).toContain(mcpResponse.status);
+		}
+
+		expect(
+			survivingTokens,
+			'Refreshed access token(s) remained usable at the real /mcp endpoint after revocation returned HTTP 200',
+		).toHaveLength(0);
+	}, 90_000);
+});
+
 describe('concurrent refresh', () => {
 	test('only one concurrent refresh wins with the same token', async () => {
 		const { clientId, tokens } = await createOAuthTokens();
