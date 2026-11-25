@@ -459,6 +459,13 @@ describe('concurrent refresh and revocation', () => {
 					logoutActivityCount: 1,
 					mcpStatus: 200,
 				});
+			} finally {
+				if (!lockReleased) {
+					await lockConnection.raw('SELECT pg_advisory_unlock(?)', [20261126]).catch(() => undefined);
+				}
+				await lockConnection.rollback().catch(() => undefined);
+				await db.destroy();
+			}
 			},
 			60_000,
 		);
