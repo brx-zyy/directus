@@ -6,6 +6,8 @@ on:
       - security-test/mcp-oauth-revoke-refresh-race
     paths:
       - 'api/src/services/mcp-oauth/revocation-race.integration.test.ts'
+      - 'api/src/services/mcp-oauth/index.ts'
+      - 'tests/e2e/setup/global-setup-one.ts'
       - 'tests/e2e/tests/auth/mcp-oauth/general.test.ts'
       - '.github/workflows/mcp-oauth-race.yml'
   pull_request:
