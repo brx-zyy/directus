@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
 import knex, { type Knex } from 'knex';
+import express from 'express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { McpOAuthService } from './index.js';
 import { getAccountabilityForToken } from '../../utils/get-accountability-for-token.js';
+import authenticate from '../../middleware/authenticate.js';
 
 const shared = vi.hoisted(() => ({ db: undefined as unknown }));
 
@@ -233,6 +235,42 @@ describe('MCP OAuth refresh/revocation PostgreSQL race', () => {
 		const accountability = await getAccountabilityForToken(refreshed.access_token);
 		expect(accountability.user).toBe(userId);
 		expect(accountability.session).toBe(newHash);
+
 		expect(accountability.oauth?.client).toBe(clientId);
+
+		// Exercise Directus' actual authentication middleware through an HTTP request.
+		// The tiny route only exposes the authenticated principal for this isolated test.
+		const app = express();
+		app.use((req: express.Request & { token?: string }, _res, next) => {
+			req.token = refreshed.access_token;
+			next();
+		});
+		app.use(authenticate);
+		app.get('/protected-test', (req, res) => {
+			res.json({
+				user: req.accountability?.user,
+				oauthClient: req.accountability?.oauth?.client,
+				session: req.accountability?.session,
+			});
+		});
+
+		const server = app.listen(0);
+		await new Promise<void>((resolve) => server.once('listening', resolve));
+		const address = server.address();
+		if (!address || typeof address === 'string') throw new Error('Test HTTP server did not bind to a TCP port');
+
+		try {
+			const response = await fetch(`http://127.0.0.1:${address.port}/protected-test`);
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({
+				user: userId,
+				oauthClient: clientId,
+				session: newHash,
+			});
+		} finally {
+			await new Promise<void>((resolve, reject) => {
+				server.close((error) => (error ? reject(error) : resolve()));
+			});
+		}
 	});
 });
