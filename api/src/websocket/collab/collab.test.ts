@@ -575,6 +575,7 @@ describe('CollabHandler', () => {
 				changes: { title: 'Attacker-controlled value' },
 			} as any);
 
+
 			expect(verifyPermissions).toHaveBeenCalledWith(
 				mockClient.accountability,
 				'settings',
@@ -582,6 +583,7 @@ describe('CollabHandler', () => {
 				'create',
 				expect.anything(),
 			);
+
 			expect(verifyPermissions).not.toHaveBeenCalledWith(
 				mockClient.accountability,
 				'settings',
@@ -589,6 +591,7 @@ describe('CollabHandler', () => {
 				'update',
 				expect.anything(),
 			);
+
 			expect(mockRoom.update).toHaveBeenCalledWith(mockClient, { title: 'Attacker-controlled value' });
 		});
 
