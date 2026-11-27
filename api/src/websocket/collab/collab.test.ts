@@ -542,6 +542,57 @@ describe('CollabHandler', () => {
 			).rejects.toHaveProperty('extensions.reason', expect.stringMatching(/No permission to update field secret/i));
 		});
 
+
+		test('accepts singleton update-all changes when create is allowed but update is denied', async () => {
+			const mockRoom = {
+				hasClient: vi.fn().mockResolvedValue(true),
+				getFocusByField: vi.fn().mockResolvedValue(null),
+				update: vi.fn(),
+				collection: 'settings',
+				item: null,
+			};
+
+			vi.mocked(getSchema).mockResolvedValue({
+				collections: {
+					settings: {
+						primary: 'id',
+						collection: 'settings',
+						singleton: true,
+						fields: { title: { field: 'title' } },
+					},
+				},
+				relations: [],
+			} as any);
+
+			vi.mocked(verifyPermissions).mockImplementation(async (_acc, _col, _id, action) => {
+				return action === 'create' ? ['title'] : [];
+			});
+
+			vi.mocked(handler.roomManager.getRoom).mockResolvedValue(mockRoom as any);
+
+			await handler.onUpdateAll(mockClient, {
+				action: 'update_all',
+				room: 'singleton-room',
+				changes: { title: 'Attacker-controlled value' },
+			} as any);
+
+			expect(verifyPermissions).toHaveBeenCalledWith(
+				mockClient.accountability,
+				'settings',
+				null,
+				'create',
+				expect.anything(),
+			);
+			expect(verifyPermissions).not.toHaveBeenCalledWith(
+				mockClient.accountability,
+				'settings',
+				null,
+				'update',
+				expect.anything(),
+			);
+			expect(mockRoom.update).toHaveBeenCalledWith(mockClient, { title: 'Attacker-controlled value' });
+		});
+
 		test('skips fields focused by others and updates remaining', async () => {
 			const mockRoom = {
 				hasClient: vi.fn().mockResolvedValue(true),
