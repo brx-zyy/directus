@@ -542,7 +542,6 @@ describe('CollabHandler', () => {
 			).rejects.toHaveProperty('extensions.reason', expect.stringMatching(/No permission to update field secret/i));
 		});
 
-
 		test('accepts singleton update-all changes when create is allowed but update is denied', async () => {
 			const mockRoom = {
 				hasClient: vi.fn().mockResolvedValue(true),
