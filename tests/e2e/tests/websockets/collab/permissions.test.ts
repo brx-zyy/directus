@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { createDirectus, createItem, readSingleton, rest, staticToken, updateSettings, updateSingleton } from '@directus/sdk';
+import {
+	createDirectus,
+	createItem,
+	readSingleton,
+	rest,
+	staticToken,
+	updateSettings,
+	updateSingleton,
+} from '@directus/sdk';
 import { openCollab } from '@utils/collab.js';
 import { port } from '@utils/constants.js';
 import { useSnapshot } from '@utils/use-snapshot.js';
