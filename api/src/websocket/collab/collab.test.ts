@@ -575,7 +575,6 @@ describe('CollabHandler', () => {
 				changes: { title: 'Attacker-controlled value' },
 			} as any);
 
-
 			expect(verifyPermissions).toHaveBeenCalledWith(
 				mockClient.accountability,
 				'settings',
