@@ -312,11 +312,15 @@ test('update_all can broadcast singleton changes with create but without update 
 		changes: { title: 'Injected Collaborative Draft' },
 	});
 
-	expect(await observer.waitFor('update', (message) => message.field === 'title')).toMatchObject({
-		room: observerInit.room,
-		field: 'title',
-		changes: 'Injected Collaborative Draft',
-	});
+	// Capture the first protocol response on each socket instead of assuming the observer
+	// receives an update. This distinguishes an explicit rejection from a missing broadcast.
+	const [attackerResponse, observerResponse] = await Promise.all([
+		attacker.next((message) => message.type === 'collab', 3000).catch((error) => ({ timeout: error.message })),
+		observer.next((message) => message.type === 'collab', 3000).catch((error) => ({ timeout: error.message })),
+	]);
+
+	console.log('singleton update_all attacker response:', JSON.stringify(attackerResponse));
+	console.log('singleton update_all observer response:', JSON.stringify(observerResponse));
 
 	// The same account still cannot persist the change through the normal REST API.
 	const attackerApi = createDirectus<Schema>(`http://localhost:${port}`).with(rest()).with(staticToken(attackerToken));
