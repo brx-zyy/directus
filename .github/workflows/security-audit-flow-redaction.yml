@@ -1,0 +1,30 @@
+name: Security Audit - Flow Revision Secret Redaction
+
+on:
+  push:
+    branches:
+      - security-audit/flow-revision-secret-redaction
+    paths:
+      - "api/src/constants.ts"
+      - "api/src/utils/redact-object.ts"
+      - "api/src/utils/flow-secret-redaction.security.test.ts"
+      - ".github/workflows/security-audit-flow-redaction.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+      - name: Install and build Directus workspace
+        uses: ./.github/actions/prepare
+      - name: Run focused security regression test
+        working-directory: api
+        run: pnpm exec vitest run src/utils/flow-secret-redaction.security.test.ts
