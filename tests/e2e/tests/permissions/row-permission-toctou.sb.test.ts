@@ -4,6 +4,7 @@ import {
 	createCollection,
 	createDirectus,
 	createItem,
+	deleteItem,
 	createPolicy,
 	createUser,
 	readItem,
@@ -103,6 +104,11 @@ test.skipIf(database !== 'postgres')(
 						fields: ['title'],
 						permissions: { owner: { _eq: '$CURRENT_USER' } },
 					},
+					{
+						action: 'delete',
+						collection: COLLECTION,
+						permissions: { owner: { _eq: '$CURRENT_USER' } },
+					},
 				] as any,
 			}),
 		);
@@ -174,5 +180,42 @@ test.skipIf(database !== 'postgres')(
 
 		const adminRead = await admin.request(readItem(COLLECTION, record.id as number));
 		expect(adminRead).toMatchObject({ owner: victim.id, title: 'written-after-transfer' });
+
+		// Repeat the race with delete-only authorization to check whether the same
+		// stale permission decision can delete a row after ownership changes.
+		const deleteRecord = await admin.request(
+			createItem(COLLECTION, { owner: attacker.id, title: 'delete-before-transfer' } as any),
+		);
+
+		const deleteTransfer = await blockerDb.transaction();
+		await deleteTransfer(COLLECTION).where({ id: deleteRecord.id }).update({ owner: victim.id });
+
+		const attackerDelete = attackerApi.request(deleteItem(COLLECTION, deleteRecord.id as number));
+		let observedDeleteLock = false;
+		const deleteDeadline = Date.now() + 20_000;
+
+		while (Date.now() < deleteDeadline) {
+			const waiting = await blockerDb('pg_stat_activity')
+				.select('pid', 'query', 'wait_event_type')
+				.where({ datname: directus.env.DB_DATABASE, wait_event_type: 'Lock' })
+				.whereRaw('query ILIKE ?', [`%delete from "%${COLLECTION}"%`]);
+
+			if (waiting.length > 0) {
+				observedDeleteLock = true;
+				break;
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+
+		if (!observedDeleteLock) {
+			await deleteTransfer.rollback();
+			await expect(attackerDelete).rejects.toThrow();
+			throw new Error('Did not observe the API DELETE waiting on the ownership-transfer row lock');
+		}
+
+		await deleteTransfer.commit();
+		await expect(attackerDelete).resolves.toBeDefined();
+		expect(await blockerDb(COLLECTION).where({ id: deleteRecord.id }).first()).toBeUndefined();
 	},
 );
