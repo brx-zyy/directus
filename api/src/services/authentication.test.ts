@@ -508,6 +508,18 @@ describe('Integration Tests', () => {
 				expect(mockLogoutProvider.logout).toHaveBeenCalledOnce();
 			});
 
+			it('should revoke share sessions on logout', async () => {
+				// Share sessions have no directus_users row. A user-only INNER JOIN
+				// therefore hides the session from logout and leaves its refresh token active.
+				tracker.on.select('directus_sessions').responseOnce([]);
+
+				await service.logout('share-refresh-token');
+
+				const selectQuery = tracker.history.select.find((q) => q.sql.includes('directus_sessions'));
+				expect(selectQuery?.sql).not.toContain('inner join "directus_users"');
+				expect(tracker.history.delete).toHaveLength(1);
+			});
+
 			it('should ignore logout requests for OAuth sessions', async () => {
 				tracker.on.select('directus_sessions').responseOnce([]);
 
