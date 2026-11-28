@@ -13,6 +13,7 @@ import {
 	staticToken,
 	updateItem,
 	updateItems,
+	updateItemsBatch,
 	updatePolicy,
 } from '@directus/sdk';
 import { sandbox } from '@directus/sandbox';
@@ -295,6 +296,49 @@ test.skipIf(database !== 'postgres')(
 		expect(await blockerDb(COLLECTION).where({ id: bulkUpdateRecord.id }).first()).toMatchObject({
 			owner: victim.id,
 			title: 'bulk-written-after-transfer',
+		});
+
+		// Exercise PATCH /items/:collection with a batch payload, which routes through updateBatch.
+		const batchUpdateRecord = await admin.request(
+			createItem(COLLECTION, { owner: attacker.id, title: 'batch-update-before-transfer' } as any),
+		);
+
+		const batchTransfer = await blockerDb.transaction();
+		await batchTransfer(COLLECTION).where({ id: batchUpdateRecord.id }).update({ owner: victim.id });
+
+		const attackerBatchUpdate = attackerApi.request(
+			updateItemsBatch(COLLECTION, [
+				{ id: batchUpdateRecord.id as number, title: 'batch-written-after-transfer' } as any,
+			]),
+		);
+		let observedBatchUpdateLock = false;
+		const batchUpdateDeadline = Date.now() + 20_000;
+
+		while (Date.now() < batchUpdateDeadline) {
+			const waiting = await blockerDb('pg_stat_activity')
+				.select('pid', 'query', 'wait_event_type')
+				.where({ datname: directus.env.DB_DATABASE, wait_event_type: 'Lock' })
+				.whereRaw('query ILIKE ?', [`%update "%${COLLECTION}"%`]);
+
+			if (waiting.length > 0) {
+				observedBatchUpdateLock = true;
+				break;
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+
+		if (!observedBatchUpdateLock) {
+			await batchTransfer.rollback();
+			await expect(attackerBatchUpdate).rejects.toThrow();
+			throw new Error('Did not observe the batch API UPDATE waiting on the ownership-transfer row lock');
+		}
+
+		await batchTransfer.commit();
+		await expect(attackerBatchUpdate).resolves.toBeDefined();
+		expect(await blockerDb(COLLECTION).where({ id: batchUpdateRecord.id }).first()).toMatchObject({
+			owner: victim.id,
+			title: 'batch-written-after-transfer',
 		});
 	},
 );
