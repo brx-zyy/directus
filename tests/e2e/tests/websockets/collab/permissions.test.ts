@@ -419,6 +419,53 @@ test('an authorized collaborator can persist a singleton draft received through 
 	});
 });
 
+test('updateAll cannot overwrite a singleton field after another collaborator focuses it', async () => {
+	await api.request(updateSingleton(collections.singleton, { title: 'Race Baseline' } as any));
+
+	const attackerToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'create', fields: ['title'] },
+	]);
+
+	const victimToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'update', fields: ['title'] },
+	]);
+
+	const attacker = await client(attackerToken);
+	const victim = await client(victimToken);
+	const attackerInit = await attacker.join(collections.singleton, null as any);
+	const victimInit = await victim.join(collections.singleton, null as any);
+	expect(attackerInit.room).toBe(victimInit.room);
+
+	// Repeatedly race the bulk-update handler's lock check against the victim's
+	// focus request. A successful exploit is an UPDATE delivered after the
+	// attacker has observed the victim's focus notification.
+	let overwrittenWhileFocused = false;
+
+	for (let attempt = 0; attempt < 30 && !overwrittenWhileFocused; attempt++) {
+		const value = `Raced Draft ${attempt}-${randomUUID()}`;
+
+		attacker.collab({
+			action: 'updateAll',
+			room: attackerInit.room,
+			changes: { title: value },
+		});
+
+		victim.collab({ action: 'focus', room: victimInit.room, field: 'title' });
+
+		await attacker.waitFor('focus', (message) => message.connection !== undefined && message.field === 'title');
+		const update = await victim.waitFor('update', (message) => message.field === 'title' && message.changes === value, 1500).catch(() => null);
+
+		if (update) overwrittenWhileFocused = true;
+
+		victim.collab({ action: 'focus', room: victimInit.room, field: null });
+		await attacker.waitFor('focus', (message) => message.field === null);
+	}
+
+	expect(overwrittenWhileFocused).toBe(false);
+});
+
 test('updateAll does not broadcast changes to an existing item without update permission', async () => {
 	const item = await api.request(createItem(collections.items, { title: 'Persisted Item Title' } as any));
 
