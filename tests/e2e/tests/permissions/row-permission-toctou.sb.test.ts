@@ -5,6 +5,7 @@ import {
 	createDirectus,
 	createItem,
 	deleteItem,
+	deleteItems,
 	createPolicy,
 	createUser,
 	readItem,
@@ -217,5 +218,41 @@ test.skipIf(database !== 'postgres')(
 		await deleteTransfer.commit();
 		await expect(attackerDelete).resolves.toBeDefined();
 		expect(await blockerDb(COLLECTION).where({ id: deleteRecord.id }).first()).toBeUndefined();
+
+		// Exercise the collection-level bulk DELETE route with the same race.
+		const bulkDeleteRecord = await admin.request(
+			createItem(COLLECTION, { owner: attacker.id, title: 'bulk-delete-before-transfer' } as any),
+		);
+
+		const bulkTransfer = await blockerDb.transaction();
+		await bulkTransfer(COLLECTION).where({ id: bulkDeleteRecord.id }).update({ owner: victim.id });
+
+		const attackerBulkDelete = attackerApi.request(deleteItems(COLLECTION, [bulkDeleteRecord.id as number]));
+		let observedBulkDeleteLock = false;
+		const bulkDeleteDeadline = Date.now() + 20_000;
+
+		while (Date.now() < bulkDeleteDeadline) {
+			const waiting = await blockerDb('pg_stat_activity')
+				.select('pid', 'query', 'wait_event_type')
+				.where({ datname: directus.env.DB_DATABASE, wait_event_type: 'Lock' })
+				.whereRaw('query ILIKE ?', [`%delete from "%${COLLECTION}"%`]);
+
+			if (waiting.length > 0) {
+				observedBulkDeleteLock = true;
+				break;
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+
+		if (!observedBulkDeleteLock) {
+			await bulkTransfer.rollback();
+			await expect(attackerBulkDelete).rejects.toThrow();
+			throw new Error('Did not observe the bulk API DELETE waiting on the ownership-transfer row lock');
+		}
+
+		await bulkTransfer.commit();
+		await expect(attackerBulkDelete).resolves.toBeDefined();
+		expect(await blockerDb(COLLECTION).where({ id: bulkDeleteRecord.id }).first()).toBeUndefined();
 	},
 );
