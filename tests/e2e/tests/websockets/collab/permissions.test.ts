@@ -333,8 +333,6 @@ test('updateAll can broadcast singleton changes with create but without update p
 	});
 });
 
-
-
 test('an authorized collaborator can persist a singleton draft received through collaboration', async () => {
 	await api.request(updateSingleton(collections.singleton, { title: 'Persisted Singleton Title' } as any));
 
@@ -400,5 +398,4 @@ test('updateAll does not broadcast changes to an existing item without update pe
 
 	expect(await attacker.waitFor('error')).toMatchObject({ code: 'FORBIDDEN' });
 	expect(await observer.quiet('update', (message) => message.field === 'title')).toBe(true);
-
 });
