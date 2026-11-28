@@ -33,6 +33,7 @@ test.skipIf(database !== 'postgres')(
 		directus = await sandbox('postgres', {
 			env: {
 				LOG_LEVEL: 'debug',
+				LICENSE_KEY: 'D0000-00000-00000-00000-0000K',
 				DB_FILENAME: `directus_test_${getUID()}.db`,
 				CACHE_STORE: 'memory',
 			},
