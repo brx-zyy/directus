@@ -22,6 +22,6 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/prepare
         with:
-          build: 'false'
+          build: 'true'
       - name: Run authentication regression test
         run: pnpm --dir api exec vitest run src/services/authentication.test.ts
