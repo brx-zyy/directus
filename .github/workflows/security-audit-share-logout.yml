@@ -1,0 +1,27 @@
+name: Security audit - share session logout
+on:
+  push:
+    branches:
+      - security-audit/share-session-logout
+    paths:
+      - 'api/src/services/authentication.ts'
+      - 'api/src/services/authentication.test.ts'
+      - '.github/workflows/security-audit-share-logout.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  share-session-logout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        uses: ./.github/actions/prepare
+        with:
+          build: 'false'
+      - name: Run authentication regression test
+        run: pnpm --dir api exec vitest run src/services/authentication.test.ts
