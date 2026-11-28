@@ -278,7 +278,7 @@ test('a singleton room hands a restricted client only the fields it may read', a
 	expect(joined.changes ?? {}).not.toHaveProperty('confidential');
 });
 
-test('update_all can broadcast singleton changes with create but without update permission', async () => {
+test('updateAll can broadcast singleton changes with create but without update permission', async () => {
 	await api.request(updateSingleton(collections.singleton, { title: 'Persisted Singleton Title' } as any));
 
 	const attackerToken = await createRestrictedUser(api as any, [
@@ -307,20 +307,18 @@ test('update_all can broadcast singleton changes with create but without update 
 
 	// The update-all path validates a null singleton item as a create operation.
 	attacker.collab({
-		action: 'update_all',
+		action: 'updateAll',
 		room: attackerInit.room,
 		changes: { title: 'Injected Collaborative Draft' },
 	});
 
-	// Capture the first protocol response on each socket instead of assuming the observer
-	// receives an update. This distinguishes an explicit rejection from a missing broadcast.
-	const [attackerResponse, observerResponse] = await Promise.all([
-		attacker.next((message) => message.type === 'collab', 3000).catch((error) => ({ timeout: error.message })),
-		observer.next((message) => message.type === 'collab', 3000).catch((error) => ({ timeout: error.message })),
-	]);
-
-	console.log('singleton update_all attacker response:', JSON.stringify(attackerResponse));
-	console.log('singleton update_all observer response:', JSON.stringify(observerResponse));
+	// The observer must receive the unauthorized draft through the normal update event.
+	const broadcast = await observer.waitFor('update', (message) => message.field === 'title');
+	expect(broadcast).toMatchObject({
+		room: observerInit.room,
+		field: 'title',
+		changes: 'Injected Collaborative Draft',
+	});
 
 	// The same account still cannot persist the change through the normal REST API.
 	const attackerApi = createDirectus<Schema>(`http://localhost:${port}`).with(rest()).with(staticToken(attackerToken));
