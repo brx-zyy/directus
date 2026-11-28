@@ -65,7 +65,7 @@ test.skipIf(database !== 'postgres')(
 			createUser({
 				first_name: 'TOCTOU',
 				last_name: 'Attacker',
-				email: `${attackerToken}@example.test`,
+				email: `${attackerToken}@example.com`,
 				password: 'password',
 				token: attackerToken,
 			}),
@@ -76,7 +76,7 @@ test.skipIf(database !== 'postgres')(
 			createUser({
 				first_name: 'TOCTOU',
 				last_name: 'Victim',
-				email: `${victimToken}@example.test`,
+				email: `${victimToken}@example.com`,
 				password: 'password',
 				token: victimToken,
 			}),
