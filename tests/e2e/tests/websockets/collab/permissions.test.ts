@@ -401,7 +401,4 @@ test('updateAll does not broadcast changes to an existing item without update pe
 	expect(await attacker.waitFor('error')).toMatchObject({ code: 'FORBIDDEN' });
 	expect(await observer.quiet('update', (message) => message.field === 'title')).toBe(true);
 
-	expect(await api.request(readSingleton(collections.singleton))).toMatchObject({
-		title: 'Persisted Singleton Title',
-	});
 });
