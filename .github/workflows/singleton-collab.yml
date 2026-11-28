@@ -1,0 +1,37 @@
+name: Singleton collaboration authorization test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/collab-singleton-create-vs-update
+    paths:
+      - 'api/**'
+      - 'tests/e2e/tests/websockets/collab/**'
+      - 'tests/e2e/utils/**'
+      - '.github/workflows/singleton-collab.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: singleton-collab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  singleton-collab:
+    name: SQLite singleton collaboration test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies and build Directus
+        uses: ./.github/actions/prepare
+
+      - name: Run singleton collaboration permission tests
+        working-directory: tests/e2e
+        env:
+          LOG_LEVEL: debug
+        run: pnpm vitest --project sqlite --no-file-parallelism tests/websockets/collab/permissions.test.ts

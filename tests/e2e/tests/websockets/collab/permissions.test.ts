@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { createDirectus, createItem, rest, staticToken, updateSettings, updateSingleton } from '@directus/sdk';
+import {
+	createDirectus,
+	createItem,
+	readSingleton,
+	rest,
+	staticToken,
+	updateSettings,
+	updateSingleton,
+} from '@directus/sdk';
 import { openCollab } from '@utils/collab.js';
 import { port } from '@utils/constants.js';
 import { useSnapshot } from '@utils/use-snapshot.js';
@@ -268,4 +276,126 @@ test('a singleton room hands a restricted client only the fields it may read', a
 
 	expect(joined.action).toBe('init');
 	expect(joined.changes ?? {}).not.toHaveProperty('confidential');
+});
+
+test('updateAll can broadcast singleton changes with create but without update permission', async () => {
+	await api.request(updateSingleton(collections.singleton, { title: 'Persisted Singleton Title' } as any));
+
+	const attackerToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'create', fields: ['title'] },
+	]);
+
+	const observer = await client();
+	const attacker = await client(attackerToken);
+
+	const observerInit = await observer.join(collections.singleton, null as any);
+	const attackerInit = await attacker.join(collections.singleton, null as any);
+
+	expect(attackerInit.room).toBe(observerInit.room);
+	await observer.waitFor('join');
+
+	// The single-field path checks update permissions and must reject this user.
+	attacker.collab({
+		action: 'update',
+		room: attackerInit.room,
+		field: 'title',
+		changes: 'Rejected Single-Field Draft',
+	});
+
+	expect(await attacker.waitFor('error')).toMatchObject({ code: 'FORBIDDEN' });
+
+	// The update-all path validates a null singleton item as a create operation.
+	attacker.collab({
+		action: 'updateAll',
+		room: attackerInit.room,
+		changes: { title: 'Injected Collaborative Draft' },
+	});
+
+	// The observer must receive the unauthorized draft through the normal update event.
+	const broadcast = await observer.waitFor('update', (message) => message.field === 'title');
+	expect(broadcast).toMatchObject({
+		room: observerInit.room,
+		field: 'title',
+		changes: 'Injected Collaborative Draft',
+	});
+
+	// The same account still cannot persist the change through the normal REST API.
+	const attackerApi = createDirectus<Schema>(`http://localhost:${port}`).with(rest()).with(staticToken(attackerToken));
+
+	await expect(
+		attackerApi.request(updateSingleton(collections.singleton, { title: 'Unauthorized Persisted Title' } as any)),
+	).rejects.toThrowError();
+
+	// Collaboration state is a draft; the database value remains unchanged.
+	expect(await api.request(readSingleton(collections.singleton))).toMatchObject({
+		title: 'Persisted Singleton Title',
+	});
+});
+
+test('an authorized collaborator can persist a singleton draft received through collaboration', async () => {
+	await api.request(updateSingleton(collections.singleton, { title: 'Persisted Singleton Title' } as any));
+
+	const attackerToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'create', fields: ['title'] },
+	]);
+
+	const victimToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'update', fields: ['title'] },
+	]);
+
+	const victim = await client(victimToken);
+	const attacker = await client(attackerToken);
+
+	const victimInit = await victim.join(collections.singleton, null as any);
+	const attackerInit = await attacker.join(collections.singleton, null as any);
+
+	expect(attackerInit.room).toBe(victimInit.room);
+	await victim.waitFor('join');
+
+	attacker.collab({
+		action: 'updateAll',
+		room: attackerInit.room,
+		changes: { title: 'Injected Collaborative Draft' },
+	});
+
+	const received = await victim.waitFor('update', (message) => message.field === 'title');
+	expect(received.changes).toBe('Injected Collaborative Draft');
+
+	// Model the authorized editor choosing Save after the injected draft appears.
+	const victimApi = createDirectus<Schema>(`http://localhost:${port}`).with(rest()).with(staticToken(victimToken));
+	await victimApi.request(updateSingleton(collections.singleton, { title: received.changes } as any));
+
+	expect(await api.request(readSingleton(collections.singleton))).toMatchObject({
+		title: 'Injected Collaborative Draft',
+	});
+});
+
+test('updateAll does not broadcast changes to an existing item without update permission', async () => {
+	const item = await api.request(createItem(collections.items, { title: 'Persisted Item Title' } as any));
+
+	const attackerToken = await createRestrictedUser(api as any, [
+		{ collection: collections.items, action: 'read', fields: ['*'] },
+		{ collection: collections.items, action: 'create', fields: ['title'] },
+	]);
+
+	const observer = await client();
+	const attacker = await client(attackerToken);
+
+	const observerInit = await observer.join(collections.items, item.id!);
+	const attackerInit = await attacker.join(collections.items, item.id!);
+
+	expect(attackerInit.room).toBe(observerInit.room);
+	await observer.waitFor('join');
+
+	attacker.collab({
+		action: 'updateAll',
+		room: attackerInit.room,
+		changes: { title: 'Unauthorized Existing Item Draft' },
+	});
+
+	expect(await attacker.waitFor('error')).toMatchObject({ code: 'FORBIDDEN' });
+	expect(await observer.quiet('update', (message) => message.field === 'title')).toBe(true);
 });
