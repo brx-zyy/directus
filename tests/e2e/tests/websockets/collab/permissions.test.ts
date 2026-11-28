@@ -334,6 +334,47 @@ test('updateAll can broadcast singleton changes with create but without update p
 });
 
 
+
+test('an authorized collaborator can persist a singleton draft received through collaboration', async () => {
+	await api.request(updateSingleton(collections.singleton, { title: 'Persisted Singleton Title' } as any));
+
+	const attackerToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'create', fields: ['title'] },
+	]);
+
+	const victimToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'update', fields: ['title'] },
+	]);
+
+	const victim = await client(victimToken);
+	const attacker = await client(attackerToken);
+
+	const victimInit = await victim.join(collections.singleton, null as any);
+	const attackerInit = await attacker.join(collections.singleton, null as any);
+
+	expect(attackerInit.room).toBe(victimInit.room);
+	await victim.waitFor('join');
+
+	attacker.collab({
+		action: 'updateAll',
+		room: attackerInit.room,
+		changes: { title: 'Injected Collaborative Draft' },
+	});
+
+	const received = await victim.waitFor('update', (message) => message.field === 'title');
+	expect(received.changes).toBe('Injected Collaborative Draft');
+
+	// Model the authorized editor choosing Save after the injected draft appears.
+	const victimApi = createDirectus<Schema>(`http://localhost:${port}`).with(rest()).with(staticToken(victimToken));
+	await victimApi.request(updateSingleton(collections.singleton, { title: received.changes } as any));
+
+	expect(await api.request(readSingleton(collections.singleton))).toMatchObject({
+		title: 'Injected Collaborative Draft',
+	});
+});
+
 test('updateAll does not broadcast changes to an existing item without update permission', async () => {
 	const item = await api.request(createItem(collections.items, { title: 'Persisted Item Title' } as any));
 
