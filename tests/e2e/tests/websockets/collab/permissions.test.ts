@@ -332,3 +332,35 @@ test('updateAll can broadcast singleton changes with create but without update p
 		title: 'Persisted Singleton Title',
 	});
 });
+
+
+test('updateAll does not broadcast changes to an existing item without update permission', async () => {
+	const item = await api.request(createItem(collections.items, { title: 'Persisted Item Title' } as any));
+
+	const attackerToken = await createRestrictedUser(api as any, [
+		{ collection: collections.items, action: 'read', fields: ['*'] },
+		{ collection: collections.items, action: 'create', fields: ['title'] },
+	]);
+
+	const observer = await client();
+	const attacker = await client(attackerToken);
+
+	const observerInit = await observer.join(collections.items, item.id!);
+	const attackerInit = await attacker.join(collections.items, item.id!);
+
+	expect(attackerInit.room).toBe(observerInit.room);
+	await observer.waitFor('join');
+
+	attacker.collab({
+		action: 'updateAll',
+		room: attackerInit.room,
+		changes: { title: 'Unauthorized Existing Item Draft' },
+	});
+
+	expect(await attacker.waitFor('error')).toMatchObject({ code: 'FORBIDDEN' });
+	expect(await observer.quiet('update', (message) => message.field === 'title')).toBe(true);
+
+	expect(await api.request(readSingleton(collections.singleton))).toMatchObject({
+		title: 'Persisted Singleton Title',
+	});
+});
