@@ -12,6 +12,7 @@ import {
 	rest,
 	staticToken,
 	updateItem,
+	updateItems,
 	updatePolicy,
 } from '@directus/sdk';
 import { sandbox } from '@directus/sandbox';
@@ -254,5 +255,46 @@ test.skipIf(database !== 'postgres')(
 		await bulkTransfer.commit();
 		await expect(attackerBulkDelete).resolves.toBeDefined();
 		expect(await blockerDb(COLLECTION).where({ id: bulkDeleteRecord.id }).first()).toBeUndefined();
+
+		// Exercise collection-level bulk UPDATE (PATCH /items/:collection) as well.
+		const bulkUpdateRecord = await admin.request(
+			createItem(COLLECTION, { owner: attacker.id, title: 'bulk-update-before-transfer' } as any),
+		);
+
+		const bulkUpdateTransfer = await blockerDb.transaction();
+		await bulkUpdateTransfer(COLLECTION).where({ id: bulkUpdateRecord.id }).update({ owner: victim.id });
+
+		const attackerBulkUpdate = attackerApi.request(
+			updateItems(COLLECTION, [bulkUpdateRecord.id as number], { title: 'bulk-written-after-transfer' } as any),
+		);
+		let observedBulkUpdateLock = false;
+		const bulkUpdateDeadline = Date.now() + 20_000;
+
+		while (Date.now() < bulkUpdateDeadline) {
+			const waiting = await blockerDb('pg_stat_activity')
+				.select('pid', 'query', 'wait_event_type')
+				.where({ datname: directus.env.DB_DATABASE, wait_event_type: 'Lock' })
+				.whereRaw('query ILIKE ?', [`%update "%${COLLECTION}"%`]);
+
+			if (waiting.length > 0) {
+				observedBulkUpdateLock = true;
+				break;
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+
+		if (!observedBulkUpdateLock) {
+			await bulkUpdateTransfer.rollback();
+			await expect(attackerBulkUpdate).rejects.toThrow();
+			throw new Error('Did not observe the bulk API UPDATE waiting on the ownership-transfer row lock');
+		}
+
+		await bulkUpdateTransfer.commit();
+		await expect(attackerBulkUpdate).resolves.toBeDefined();
+		expect(await blockerDb(COLLECTION).where({ id: bulkUpdateRecord.id }).first()).toMatchObject({
+			owner: victim.id,
+			title: 'bulk-written-after-transfer',
+		});
 	},
 );
