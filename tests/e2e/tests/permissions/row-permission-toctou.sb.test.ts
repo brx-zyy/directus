@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import knex from 'knex';
 import {
 	createCollection,
@@ -60,7 +61,7 @@ test.skipIf(database !== 'postgres')(
 			} as any),
 		);
 
-		const attackerToken = getUID();
+		const attackerToken = randomUUID();
 		const attacker = await admin.request(
 			createUser({
 				first_name: 'TOCTOU',
@@ -71,7 +72,7 @@ test.skipIf(database !== 'postgres')(
 			}),
 		);
 
-		const victimToken = getUID();
+		const victimToken = randomUUID();
 		const victim = await admin.request(
 			createUser({
 				first_name: 'TOCTOU',
