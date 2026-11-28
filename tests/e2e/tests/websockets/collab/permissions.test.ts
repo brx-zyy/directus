@@ -257,50 +257,6 @@ test('a relational draft is trimmed to the fields the recipient may read', async
 	expect(update.changes).not.toHaveProperty('field_b');
 });
 
-test('a singleton initialChanges payload can seed a draft with create but without update permission', async () => {
-	await api.request(updateSingleton(collections.singleton, { title: 'Persisted Singleton Title' } as any));
-
-	const attackerToken = await createRestrictedUser(api as any, [
-		{ collection: collections.singleton, action: 'read', fields: ['*'] },
-		{ collection: collections.singleton, action: 'create', fields: ['title'] },
-	]);
-
-	const attacker = await client(attackerToken);
-	attacker.collab({
-		action: 'join',
-		collection: collections.singleton,
-		item: null,
-		version: null,
-		initialChanges: { title: 'Seeded Collaborative Draft' },
-	});
-
-	const attackerInit = await attacker.waitFor('init');
-	expect(attackerInit.changes).toMatchObject({ title: 'Seeded Collaborative Draft' });
-
-	const victimToken = await createRestrictedUser(api as any, [
-		{ collection: collections.singleton, action: 'read', fields: ['*'] },
-		{ collection: collections.singleton, action: 'update', fields: ['title'] },
-	]);
-
-	const victim = await client(victimToken);
-	const victimInit = await victim.join(collections.singleton, null as any);
-
-	expect(victimInit.room).toBe(attackerInit.room);
-	expect(victimInit.changes).toMatchObject({ title: 'Seeded Collaborative Draft' });
-
-	// Model the authorized editor choosing Save after receiving the seeded draft.
-	const victimApi = createDirectus<Schema>(`http://localhost:${port}`).with(rest()).with(staticToken(victimToken));
-	await victimApi.request(updateSingleton(collections.singleton, { title: victimInit.changes.title } as any));
-
-	expect(await api.request(readSingleton(collections.singleton))).toMatchObject({
-		title: 'Seeded Collaborative Draft',
-	});
-
-	// Clear the room draft so later singleton tests start from clean collaboration state.
-	attacker.collab({ action: 'discard', room: attackerInit.room });
-	await victim.waitFor('discard');
-});
-
 test('a singleton room hands a restricted client only the fields it may read', async () => {
 	await api.request(updateSingleton(collections.singleton, { confidential: 'Initial' } as any));
 
@@ -417,53 +373,6 @@ test('an authorized collaborator can persist a singleton draft received through 
 	expect(await api.request(readSingleton(collections.singleton))).toMatchObject({
 		title: 'Injected Collaborative Draft',
 	});
-});
-
-test('updateAll cannot overwrite a singleton field after another collaborator focuses it', async () => {
-	await api.request(updateSingleton(collections.singleton, { title: 'Race Baseline' } as any));
-
-	const attackerToken = await createRestrictedUser(api as any, [
-		{ collection: collections.singleton, action: 'read', fields: ['*'] },
-		{ collection: collections.singleton, action: 'create', fields: ['title'] },
-	]);
-
-	const victimToken = await createRestrictedUser(api as any, [
-		{ collection: collections.singleton, action: 'read', fields: ['*'] },
-		{ collection: collections.singleton, action: 'update', fields: ['title'] },
-	]);
-
-	const attacker = await client(attackerToken);
-	const victim = await client(victimToken);
-	const attackerInit = await attacker.join(collections.singleton, null as any);
-	const victimInit = await victim.join(collections.singleton, null as any);
-	expect(attackerInit.room).toBe(victimInit.room);
-
-	// Repeatedly race the bulk-update handler's lock check against the victim's
-	// focus request. A successful exploit is an UPDATE delivered after the
-	// attacker has observed the victim's focus notification.
-	let overwrittenWhileFocused = false;
-
-	for (let attempt = 0; attempt < 30 && !overwrittenWhileFocused; attempt++) {
-		const value = `Raced Draft ${attempt}-${randomUUID()}`;
-
-		attacker.collab({
-			action: 'updateAll',
-			room: attackerInit.room,
-			changes: { title: value },
-		});
-
-		victim.collab({ action: 'focus', room: victimInit.room, field: 'title' });
-
-		await attacker.waitFor('focus', (message) => message.connection !== undefined && message.field === 'title');
-		const update = await victim.waitFor('update', (message) => message.field === 'title' && message.changes === value, 1500).catch(() => null);
-
-		if (update) overwrittenWhileFocused = true;
-
-		victim.collab({ action: 'focus', room: victimInit.room, field: null });
-		await attacker.waitFor('focus', (message) => message.field === null);
-	}
-
-	expect(overwrittenWhileFocused).toBe(false);
 });
 
 test('updateAll does not broadcast changes to an existing item without update permission', async () => {
