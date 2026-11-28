@@ -375,6 +375,46 @@ test('an authorized collaborator can persist a singleton draft received through 
 	});
 });
 
+test('a singleton initialChanges payload can seed a draft with create but without update permission', async () => {
+	await api.request(updateSingleton(collections.singleton, { title: 'Persisted Singleton Title' } as any));
+
+	const attackerToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'create', fields: ['title'] },
+	]);
+
+	const attacker = await client(attackerToken);
+	attacker.collab({
+		action: 'join',
+		collection: collections.singleton,
+		item: null,
+		version: null,
+		initialChanges: { title: 'Seeded Collaborative Draft' },
+	});
+
+	const attackerInit = await attacker.waitFor('init');
+	expect(attackerInit.changes).toMatchObject({ title: 'Seeded Collaborative Draft' });
+
+	const victimToken = await createRestrictedUser(api as any, [
+		{ collection: collections.singleton, action: 'read', fields: ['*'] },
+		{ collection: collections.singleton, action: 'update', fields: ['title'] },
+	]);
+
+	const victim = await client(victimToken);
+	const victimInit = await victim.join(collections.singleton, null as any);
+
+	expect(victimInit.room).toBe(attackerInit.room);
+	expect(victimInit.changes).toMatchObject({ title: 'Seeded Collaborative Draft' });
+
+	// Model the authorized editor choosing Save after receiving the seeded draft.
+	const victimApi = createDirectus<Schema>(`http://localhost:${port}`).with(rest()).with(staticToken(victimToken));
+	await victimApi.request(updateSingleton(collections.singleton, { title: victimInit.changes.title } as any));
+
+	expect(await api.request(readSingleton(collections.singleton))).toMatchObject({
+		title: 'Seeded Collaborative Draft',
+	});
+});
+
 test('updateAll does not broadcast changes to an existing item without update permission', async () => {
 	const item = await api.request(createItem(collections.items, { title: 'Persisted Item Title' } as any));
 
